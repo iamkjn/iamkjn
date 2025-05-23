@@ -1,0 +1,104 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: AWS SAM template for a Loosely Coupled Architecture using SQS.
+
+Resources:
+  # 1. SQS Queue
+  # This resource defines the Amazon SQS Standard Queue for decoupling applications.
+  CustomerRequestQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: customer-request-queue # Name of the SQS queue.
+      # MessageRetentionPeriod: 345600 # Optional: 4 days (default), can be set up to 14 days (seconds).
+      # VisibilityTimeout: 30 # Optional: Default 30 seconds.
+      Tags:
+        - Key: Project
+          Value: LooselyCoupledSQS
+        - Key: Component
+          Value: SQSQueue
+
+  # 2. IAM Role for SQS Sender (Conceptual EC2 Role)
+  # This role would be attached to an EC2 instance or other compute that sends messages to SQS.
+  # It grants permission to send messages to the SQS queue.
+  SQSSenderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: SQSMessageSenderRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com # Allows EC2 instances to assume this role.
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy # Optional: For basic monitoring
+      Policies:
+        - PolicyName: SQSWriteAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage # Permission to send messages to SQS.
+                Resource: !GetAtt CustomerRequestQueue.Arn # Restrict to the specific SQS queue.
+      Tags:
+        - Key: Project
+          Value: LooselyCoupledSQS
+        - Key: Component
+          Value: IAMRole
+
+  # 3. IAM Role for SQS Poller (Conceptual EC2 Role)
+  # This role would be attached to an EC2 instance or other compute that polls messages from SQS.
+  # It grants permission to receive and delete messages from the SQS queue.
+  SQSPollerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: SQSMessagePollerRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com # Allows EC2 instances to assume this role.
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy # Optional: For basic monitoring
+      Policies:
+        - PolicyName: SQSReadAndDeleteAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage # Permission to receive messages.
+                  - sqs:DeleteMessage # Permission to delete messages after processing.
+                  - sqs:GetQueueAttributes # Permission to get queue details.
+                  - sqs:GetQueueUrl # Permission to get queue URL.
+                Resource: !GetAtt CustomerRequestQueue.Arn # Restrict to the specific SQS queue.
+      Tags:
+        - Key: Project
+          Value: LooselyCoupledSQS
+        - Key: Component
+          Value: IAMRole
+
+Outputs:
+  # Output the URL of the SQS Queue.
+  # This URL will be used by the sender and poller applications.
+  CustomerRequestQueueUrl:
+    Description: "URL of the SQS Queue for customer requests"
+    Value: !Ref CustomerRequestQueue
+
+  # Output the ARN of the SQS Sender IAM Role.
+  SQSSenderRoleArn:
+    Description: "ARN of the IAM Role for SQS Message Sender"
+    Value: !GetAtt SQSSenderRole.Arn
+
+  # Output the ARN of the SQS Poller IAM Role.
+  SQSPollerRoleArn:
+    Description: "ARN of the IAM Role for SQS Message Poller"
+    Value: !GetAtt SQSPollerRole.Arn
