@@ -1,0 +1,316 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: AWS SAM template for Dynamic EC2 Scaling with Auto Scaling and CloudWatch.
+
+# Parameters allow you to customize the deployment without editing the template directly.
+Parameters:
+  # AMI ID for the EC2 instances.
+  # Use an Amazon Linux 2 AMI for your region.
+  # Example for us-east-1: ami-053b0d53c27927904
+  # Find latest AMIs here: https://aws.amazon.com/amazon-linux-2/
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-2-latest/amzn2-ami-hvm-x86_64-gp2 # Default to latest Amazon Linux 2 AMI
+
+  InstanceType:
+    Type: String
+    Description: EC2 instance type for the Auto Scaling Group.
+    Default: t2.micro # Cost-effective for demo purposes.
+
+  MinInstances:
+    Type: Number
+    Description: Minimum number of EC2 instances in the Auto Scaling Group.
+    Default: 1 # Always keep at least one instance running.
+
+  MaxInstances:
+    Type: Number
+    Description: Maximum number of EC2 instances in the Auto Scaling Group.
+    Default: 3 # Allows scaling up to 3 instances.
+
+  DesiredCapacity:
+    Type: Number
+    Description: Initial desired capacity for the Auto Scaling Group.
+    Default: 1 # Start with one instance.
+
+  # Key Pair Name for SSH access to EC2 instances (optional but recommended for debugging).
+  # Ensure you have a key pair created in your AWS region.
+  KeyPairName:
+    Type: String
+    Description: Name of an existing EC2 KeyPair for SSH access.
+    Default: your-key-pair-name # IMPORTANT: Replace with your actual key pair name.
+
+Resources:
+  # 1. IAM Role for EC2 Instances
+  # This role grants permissions to EC2 instances to publish metrics to CloudWatch.
+  EC2InstanceProfileRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: DynamicScalingEC2Role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com # Allows EC2 instances to assume this role.
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: CloudWatchPutMetricDataPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData # Permission to publish custom metrics.
+                Resource: "*" # Allows publishing to any CloudWatch metric (can be more restrictive).
+        - PolicyName: EC2BasicExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "arn:aws:logs:*:*:*" # Allows logging to CloudWatch Logs.
+      Tags:
+        - Key: Project
+          Value: DynamicEC2Scaling
+        - Key: Component
+          Value: EC2Role
+
+  # 2. EC2 Launch Template
+  # Defines the configuration for launching new EC2 instances in the Auto Scaling Group.
+  EC2LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: DynamicScalingLaunchTemplate
+      LaunchTemplateData:
+        ImageId: !Ref LatestAmiId # Uses the AMI ID parameter.
+        InstanceType: !Ref InstanceType # Uses the instance type parameter.
+        KeyName: !Ref KeyPairName # Associates an SSH key pair.
+        Monitoring:
+          Enabled: true # Enable detailed CloudWatch monitoring for EC2.
+        SecurityGroupIds:
+          - !GetAtt EC2SecurityGroup.GroupId # Attach the security group defined below.
+        # UserData script to run on instance launch.
+        # This base64-encoded script installs Python dependencies and runs the simulator.
+        UserData: !Base64 |
+          #!/bin/bash
+          yum update -y
+          yum install -y python3 python3-pip
+          pip3 install boto3
+          # Create the script file on the EC2 instance
+          cat > /home/ec2-user/user_login_simulator.py << 'EOF'
+          import boto3
+          import random
+          import time
+          from datetime import datetime
+
+          cloudwatch = boto3.client('cloudwatch')
+
+          CLOUDWATCH_NAMESPACE = "Telemax/NetworkApp"
+          METRIC_NAME = "UsersLoggedIn"
+          PUBLISH_INTERVAL_SECONDS = 10
+          MIN_USERS = 5
+          MAX_USERS = 50
+          USER_CHANGE_STEP = 5
+
+          def publish_custom_metric(metric_value):
+              try:
+                  cloudwatch.put_metric_data(
+                      Namespace=CLOUDWATCH_NAMESPACE,
+                      MetricData=[
+                          {
+                              'MetricName': METRIC_NAME,
+                              'Value': metric_value,
+                              'Unit': 'Count',
+                              'Timestamp': datetime.utcnow()
+                          },
+                      ]
+                  )
+                  print(f"Published metric '{METRIC_NAME}' with value: {metric_value} to CloudWatch.")
+              except Exception as e:
+                  print(f"Error publishing metric to CloudWatch: {e}")
+
+          def simulate_user_activity():
+              current_users = random.randint(MIN_USERS, MAX_USERS)
+              while True:
+                  change = random.randint(-USER_CHANGE_STEP, USER_CHANGE_STEP)
+                  current_users = max(MIN_USERS, min(MAX_USERS, current_users + change))
+                  publish_custom_metric(current_users)
+                  time.sleep(PUBLISH_INTERVAL_SECONDS)
+
+          if __name__ == "__main__":
+              print(f"Starting {METRIC_NAME} simulator and CloudWatch publisher...")
+              print(f"Metrics will be published to Namespace: {CLOUDWATCH_NAMESPACE}")
+              simulate_user_activity()
+          EOF
+          # Make the script executable
+          chmod +x /home/ec2-user/user_login_simulator.py
+          # Run the script in the background
+          python3 /home/ec2-user/user_login_simulator.py &
+        IamInstanceProfile:
+          Arn: !GetAtt EC2InstanceProfile.Arn # Attach the IAM instance profile.
+      Tags:
+        - Key: Project
+          Value: DynamicEC2Scaling
+        - Key: Component
+          Value: LaunchTemplate
+
+  # IAM Instance Profile for EC2
+  # This is a container for the IAM role that EC2 instances can assume.
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: DynamicScalingEC2InstanceProfile
+      Roles:
+        - !Ref EC2InstanceProfileRole # Reference the IAM role created above.
+      Tags:
+        - Key: Project
+          Value: DynamicEC2Scaling
+        - Key: Component
+          Value: InstanceProfile
+
+  # Security Group for EC2 instances
+  # Allows SSH access (port 22) and HTTP (port 80) for web traffic.
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow SSH and HTTP access to EC2 instances
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0 # IMPORTANT: Restrict this to your IP for production.
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0 # Allows HTTP access from anywhere.
+      Tags:
+        - Key: Project
+          Value: DynamicEC2Scaling
+        - Key: Component
+          Value: SecurityGroup
+
+  # 3. Auto Scaling Group (ASG)
+  # Manages the lifecycle of EC2 instances based on scaling policies.
+  DynamicScalingASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: DynamicScalingASG
+      LaunchTemplate:
+        LaunchTemplateId: !Ref EC2LaunchTemplate # Reference the launch template.
+        Version: !GetAtt EC2LaunchTemplate.DefaultVersionNumber # Use the default version.
+      MinSize: !Ref MinInstances # Minimum number of instances.
+      MaxSize: !Ref MaxInstances # Maximum number of instances.
+      DesiredCapacity: !Ref DesiredCapacity # Initial number of instances.
+      VpcZoneIdentifier: # IMPORTANT: Replace with actual subnet IDs in your VPC.
+        - !ImportValue PublicSubnet1Id # Example: Assumes you have a PublicSubnet1Id exported from another stack.
+        - !ImportValue PublicSubnet2Id # Example: Assumes you have a PublicSubnet2Id exported from another stack.
+        # If you don't have existing subnets, you'll need to define a VPC and subnets in this template.
+      Tags:
+        - Key: Project
+          Value: DynamicEC2Scaling
+          PropagateAtLaunch: true # Propagate tags to instances launched by ASG.
+        - Key: Name
+          Value: DynamicScalingInstance
+          PropagateAtLaunch: true
+        - Key: Component
+          Value: AutoScalingGroup
+          PropagateAtLaunch: true
+
+  # 4. CloudWatch Alarms and Scaling Policies
+  # Scale Out Policy: Adds instances when UsersLoggedIn metric is high.
+  ScaleOutPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      PolicyType: SimpleScaling # Simple scaling policy.
+      AdjustmentType: ChangeInCapacity # Add/remove a fixed number of instances.
+      ScalingAdjustment: 1 # Add 1 instance.
+      Cooldown: 300 # Cooldown period (seconds) after scaling action.
+      AutoScalingGroupName: !Ref DynamicScalingASG
+      Tags:
+        - Key: Project
+          Value: DynamicEC2Scaling
+        - Key: Component
+          Value: ScalingPolicy
+
+  # CloudWatch Alarm for Scale Out
+  # Triggers ScaleOutPolicy when UsersLoggedIn is high.
+  ScaleOutAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: HighUsersLoggedInAlarm
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      EvaluationPeriods: 1 # Number of periods over which the statistic is applied.
+      MetricName: UsersLoggedIn # Custom metric name.
+      Namespace: Telemax/NetworkApp # Custom metric namespace.
+      Period: 60 # Period in seconds over which the statistic is applied (1 minute).
+      Statistic: Average # Statistic to apply (e.g., Average, Sum, Maximum).
+      Threshold: 20 # Threshold for scaling out (e.g., if average users >= 20).
+      AlarmActions:
+        - !Ref ScaleOutPolicy # Action to take when alarm state is ALARM.
+      Tags:
+        - Key: Project
+          Value: DynamicEC2Scaling
+        - Key: Component
+          Value: CloudWatchAlarm
+
+  # Scale In Policy: Removes instances when UsersLoggedIn metric is low.
+  ScaleInPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      PolicyType: SimpleScaling
+      AdjustmentType: ChangeInCapacity
+      ScalingAdjustment: -1 # Remove 1 instance.
+      Cooldown: 300 # Cooldown period (seconds).
+      AutoScalingGroupName: !Ref DynamicScalingASG
+      Tags:
+        - Key: Project
+          Value: DynamicEC2Scaling
+        - Key: Component
+          Value: ScalingPolicy
+
+  # CloudWatch Alarm for Scale In
+  # Triggers ScaleInPolicy when UsersLoggedIn is low.
+  ScaleInAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: LowUsersLoggedInAlarm
+      ComparisonOperator: LessThanOrEqualToThreshold
+      EvaluationPeriods: 1
+      MetricName: UsersLoggedIn
+      Namespace: Telemax/NetworkApp
+      Period: 60
+      Statistic: Average
+      Threshold: 10 # Threshold for scaling in (e.g., if average users <= 10).
+      AlarmActions:
+        - !Ref ScaleInPolicy # Action to take when alarm state is ALARM.
+      Tags:
+        - Key: Project
+          Value: DynamicEC2Scaling
+        - Key: Component
+          Value: CloudWatchAlarm
+
+Outputs:
+  # Output the Auto Scaling Group Name.
+  AutoScalingGroupName:
+    Description: "Name of the Auto Scaling Group"
+    Value: !Ref DynamicScalingASG
+
+  # Output the CloudWatch Namespace for custom metrics.
+  CloudWatchNamespace:
+    Description: "CloudWatch Namespace for custom metrics"
+    Value: !Sub "${CLOUDWATCH_NAMESPACE}" # Directly referencing the string for clarity.
+
+  # Output the EC2 Instance Profile ARN.
+  EC2InstanceProfileArn:
+    Description: "ARN of the EC2 Instance Profile"
+    Value: !GetAtt EC2InstanceProfile.Arn
+
+  # Output the Security Group ID.
+  EC2SecurityGroupId:
+    Description: "ID of the EC2 Security Group"
+    Value: !GetAtt EC2SecurityGroup.GroupId
