@@ -1,0 +1,70 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: An AWS Serverless Application Model (SAM) template for a Feedback Website backend.
+
+Resources:
+  # Defines the AWS Lambda function for processing feedback.
+  userFeedbackFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      # CodeUri specifies the location of the Lambda function code.
+      # '.' means the code is in the same directory as this template.
+      # For this repository structure, it should point to the 'backend' folder.
+      CodeUri: ../backend/ # Points to the backend folder where lambda_function.py resides
+      Description: Lambda function to process and store user feedback in DynamoDB.
+      MemorySize: 128 # Amount of memory allocated to the Lambda function (MB).
+      Timeout: 30 # Maximum execution time for the Lambda function (seconds).
+      Handler: lambda_function.lambda_handler # The file and function to execute (lambda_function.py::lambda_handler).
+      Runtime: python3.9 # IMPORTANT: Ensure this matches the Python version used in your lambda_function.py
+      Architectures:
+        - x86_64 # Standard architecture for Lambda functions.
+      EphemeralStorage:
+        Size: 512 # Ephemeral storage available to the function (MB).
+      Environment:
+        Variables:
+          # Environment variable passed to the Lambda function, specifying the DynamoDB table name.
+          DYNAMODB_TABLE_NAME: !Ref FeedbackDynamoDBTable # References the name of the DynamoDB table created below.
+      
+      # IAM Policies for the Lambda function.
+      # These policies grant the necessary permissions for the Lambda function to operate.
+      Policies:
+        # Policy to allow Lambda to write logs to CloudWatch.
+        - AWSLambdaBasicExecutionRole
+        # Policy to allow Lambda to perform PutItem operations on the specific DynamoDB table.
+        - DynamoDBWritePolicy:
+            TableName: !Ref FeedbackDynamoDBTable # Grants write access to the DynamoDB table.
+      
+      # Events that trigger this Lambda function.
+      Events:
+        # API Gateway event that triggers the Lambda function on a POST request.
+        FeedbackApi:
+          Type: Api # Defines an API Gateway endpoint.
+          Properties:
+            Path: /feedback # The URL path for this API endpoint (e.g., /feedback).
+            Method: POST # The HTTP method that triggers this endpoint.
+            # Define CORS for this API endpoint to allow requests from your frontend.
+            # This enables cross-origin resource sharing.
+            Cors:
+              AllowOrigin: "'*'" # Allows requests from any origin (e.g., your S3 static website).
+              AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              AllowMethods: "'POST,OPTIONS'" # Crucial to include OPTIONS for preflight requests.
+
+  # Defines the DynamoDB table where feedback will be stored.
+  FeedbackDynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: userFeedback # Name of the DynamoDB table.
+      BillingMode: PAY_PER_REQUEST # On-demand billing mode for cost efficiency.
+      AttributeDefinitions:
+        - AttributeName: feedback_id # Defines the primary key attribute.
+          AttributeType: S # 'S' for String type.
+      KeySchema:
+        - AttributeName: feedback_id # Specifies 'feedback_id' as the partition key.
+          KeyType: HASH # HASH indicates it's the partition key.
+
+Outputs:
+  # Output the URL of the API Gateway endpoint.
+  # This URL will be used in your frontend's JavaScript to submit feedback.
+  FeedbackApiUrl:
+    Description: "API Gateway endpoint URL for feedback submission"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/feedback"

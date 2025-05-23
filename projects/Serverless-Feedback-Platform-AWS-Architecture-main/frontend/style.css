@@ -1,0 +1,30 @@
+/* Custom CSS for specific elements not easily styled by Tailwind, or for overrides. */
+
+/* Star rating specific styles */
+.star-rating .star.selected {
+    color: gold; /* Gold color for selected stars */
+}
+
+/* Message box styles */
+.message {
+    /* Tailwind classes are used directly in HTML for most styling. */
+    /* These are for specific states not handled by simple hidden/block toggles */
+}
+
+.message.success {
+    background-color: #d4edda; /* Light green background */
+    color: #155724;            /* Dark green text */
+    border: 1px solid #c3e6cb; /* Green border */
+}
+
+.message.error {
+    background-color: #f8d7da; /* Light red background */
+    color: #721c24;            /* Dark red text */
+    border: 1px solid #f5c6cb; /* Red border */
+}
+
+.message.info {
+    background-color: #cfe2ff; /* Light blue background */
+    color: #055160;            /* Dark blue text */
+    border: 1px solid #b6d4fe; /* Blue border */
+}
