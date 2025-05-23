@@ -1,0 +1,168 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation template to deploy a development/testing WordPress instance. This instance will be managed by a separate Lambda scheduler for cost optimization.
+
+Parameters:
+  KeyPairName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance.
+    Type: AWS::EC2::KeyPair::KeyName
+  MyIpAddress:
+    Description: Your public IP address range (e.g., 203.0.113.0/32) to allow SSH and HTTP/HTTPS access. For dev/test, this should be restricted to your IP.
+    Type: String
+
+Mappings:
+  # Selects the latest Amazon Linux 2 AMI based on the AWS region.
+  # IMPORTANT: Always verify these AMI IDs are current for your desired region from the EC2 console.
+  AWSRegionArch2AMI:
+    us-east-1:
+      HVM64: ami-053b01d02c611488c # Amazon Linux 2 AMI 2.0.20250428.0 (HVM), SSD Volume Type
+    eu-west-2:
+      HVM64: ami-0a6dd24b17a1029c1 # Amazon Linux 2 AMI 2.0.20250412.0 (HVM), SSD Volume Type
+
+Resources:
+  # IAM Role and Instance Profile for EC2
+  # This role grants the EC2 instance permissions for Amazon Systems Manager (SSM).
+  WordPressDevTestInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - Ref: WordPressDevTestInstanceRole
+
+  WordPressDevTestInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore # Grants SSM permissions
+
+  # Security Group for the Dev/Test WordPress Instance
+  # For a dev/test environment, it's highly recommended to restrict access to known IPs.
+  WordPressDevTestSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable HTTP, HTTPS, and SSH access for the Dev/Test WordPress instance (restricted).
+      SecurityGroupIngress:
+        # Allow HTTP (port 80) only from your specified IP address (MyIpAddress parameter)
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref MyIpAddress
+        # Allow HTTPS (port 443) only from your specified IP address
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref MyIpAddress
+        # Allow SSH (port 22) only from your specified IP address
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref MyIpAddress
+      Tags:
+        - Key: Name
+          Value: WordPressDevTestSG # Tag for easy identification
+
+  # EC2 Instance for the Dev/Test WordPress Blog
+  # This instance will be managed (started/stopped) by the Lambda scheduler.
+  WordPressDevTestInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !FindInMap [AWSRegionArch2AMI, !Ref 'AWS::Region', HVM64]
+      InstanceType: t3.micro # A small, cost-effective instance type
+      KeyName: !Ref KeyPairName
+      SecurityGroupIds:
+        - !Ref WordPressDevTestSecurityGroup
+      IamInstanceProfile: !Ref WordPressDevTestInstanceProfile
+      Tags:
+        - Key: Name
+          Value: WordPressDevTestInstance # Primary tag
+        - Key: Environment # Crucial tag used by the Lambda function to identify dev/test instances
+          Value: Development
+        - Key: AutoSchedule # Another tag used by the Lambda function to identify instances for scheduling
+          Value: "True"
+      UserData:
+        # UserData script to install and configure WordPress, Apache, and MariaDB.
+        Fn::Base64: |
+          #!/bin/bash -xe
+          # Update system packages
+          yum update -y
+
+          # Install Apache, PHP, and MariaDB server
+          amazon-linux-extras install -y php8.2
+          yum install -y httpd php-mysqlnd mariadb-server wget
+
+          # Download and extract WordPress
+          wget https://wordpress.org/latest.tar.gz -P /tmp
+          tar -xzf /tmp/latest.tar.gz -C /tmp
+          cp -r /tmp/wordpress/* /var/www/html/
+
+          # Set proper ownership and permissions
+          chown -R apache:apache /var/www/html
+          chmod -R 755 /var/www/html
+
+          # Configure Apache Virtual Host
+          echo "<VirtualHost *:80>" > /etc/httpd/conf.d/wordpress.conf
+          echo "    DocumentRoot /var/www/html" >> /etc/httpd/conf.d/wordpress.conf
+          echo "    <Directory /var/www/html>" >> /etc/httpd/conf.d/wordpress.conf
+          echo "        AllowOverride All" >> /etc/httpd/conf.d/wordpress.conf
+          echo "        Require all granted" >> /etc/httpd/conf.d/wordpress.conf
+          echo "    </Directory>" >> /etc/httpd/conf.d/wordpress.conf
+          echo "</VirtualHost>" >> /etc/httpd/conf.d/wordpress.conf
+
+          # Start and enable Apache service
+          systemctl start httpd
+          systemctl enable httpd
+
+          # Start and enable MariaDB service
+          systemctl start mariadb
+          systemctl enable mariadb
+
+          # Configure MariaDB for WordPress Dev: Create database and user
+          # IMPORTANT: Replace 'your_dev_strong_password' with a complex, unique password!
+          mysql -u root -e "CREATE DATABASE wordpress_dev;"
+          mysql -u root -e "CREATE USER 'wp_dev_user'@'localhost' IDENTIFIED BY 'your_dev_strong_password';"
+          mysql -u root -e "GRANT ALL PRIVILEGES ON wordpress_dev.* TO 'wp_dev_user'@'localhost';"
+          mysql -u root -e "FLUSH PRIVILEGES;"
+
+          # Create wp-config.php file
+          # IMPORTANT: Generate unique keys/salts from https://api.wordpress.org/secret-key/1.1/salt/ and paste them here.
+          cat << EOF > /var/www/html/wp-config.php
+          <?php
+          define('DB_NAME', 'wordpress_dev');
+          define('DB_USER', 'wp_dev_user');
+          define('DB_PASSWORD', 'your_dev_strong_password');
+          define('DB_HOST', 'localhost');
+          define('DB_CHARSET', 'utf8');
+          define('DB_COLLATE', '');
+          // Generate these from https://api.wordpress.org/secret-key/1.1/salt/ and replace the placeholders below
+          define('AUTH_KEY',         'put your unique phrase here');
+          define('SECURE_AUTH_KEY',  'put your unique phrase here');
+          define('LOGGED_IN_KEY',    'put your unique phrase here');
+          define('NONCE_KEY',        'put your unique phrase here');
+          define('AUTH_SALT',        'put your unique phrase here');
+          define('SECURE_AUTH_SALT', 'put your unique phrase here');
+          define('LOGGED_IN_SALT',   'put your unique phrase here');
+          define('NONCE_SALT',       'put your unique phrase here');
+          define('WP_DEBUG', true); # Set to true for development, false for production
+          if ( !defined('ABSPATH') )
+              define('ABSPATH', dirname(__FILE__) . '/');
+          require_once(ABSPATH . 'wp-settings.php');
+          EOF
+
+Outputs:
+  WordPressDevTestURL:
+    Description: URL of the Dev/Test WordPress instance. It will be available during scheduled hours.
+    Value: !Join
+      - ''
+      - - 'http://'
+        - !GetAtt WordPressDevTestInstance.PublicIp
+  DevTestInstanceId:
+    Description: The Instance ID of the Dev/Test WordPress EC2 instance. This ID is required by the Lambda scheduler stack.
+    Value: !Ref WordPressDevTestInstance

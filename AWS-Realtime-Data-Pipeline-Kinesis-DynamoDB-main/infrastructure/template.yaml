@@ -1,0 +1,97 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: AWS SAM template for a Real-time Data Pipeline (Kinesis -> Lambda -> DynamoDB).
+
+Resources:
+  # 1. Kinesis Data Stream
+  # This resource defines the Kinesis stream that will ingest real-time network data.
+  NetworkDataStream:
+    Type: AWS::Kinesis::Stream
+    Properties:
+      Name: network-data-stream # Name of the Kinesis stream.
+      ShardCount: 1 # Number of shards. Adjust based on expected throughput.
+      Tags:
+        - Key: Project
+          Value: RealtimeDataPipeline
+        - Key: Component
+          Value: KinesisStream
+
+  # 2. Lambda Function for Kinesis Processing
+  # This Lambda function consumes data from the Kinesis stream and writes to DynamoDB.
+  KinesisProcessorLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../kinesis-processor-lambda/ # Path to the Lambda function code.
+      Handler: kinesis_processor_lambda.lambda_handler # File and function to execute.
+      Runtime: python3.9 # IMPORTANT: Ensure this matches your Lambda code's Python version.
+      MemorySize: 128 # MB of memory for the Lambda function.
+      Timeout: 30 # Seconds before the Lambda function times out.
+      Environment:
+        Variables:
+          # Pass the DynamoDB table name as an environment variable to the Lambda function.
+          DYNAMODB_TABLE_NAME: !Ref NetworkTopologyDataTable # References the DynamoDB table created below.
+      
+      # IAM Policies for the Lambda function.
+      Policies:
+        # Grants basic execution permissions, including writing logs to CloudWatch.
+        - AWSLambdaBasicExecutionRole
+        # Grants read access to the Kinesis stream, allowing Lambda to consume records.
+        - KinesisReadPolicy:
+            StreamName: !Ref NetworkDataStream # Grants read access to this specific Kinesis stream.
+        # Grants write access to the DynamoDB table, allowing Lambda to store processed data.
+        - DynamoDBWritePolicy:
+            TableName: !Ref NetworkTopologyDataTable # Grants write access to this specific DynamoDB table.
+      
+      # Event source mapping: Configures Lambda to be triggered by the Kinesis stream.
+      Events:
+        KinesisStreamEvent:
+          Type: Kinesis # Defines a Kinesis stream as an event source.
+          Properties:
+            Stream: !GetAtt NetworkDataStream.Arn # ARN of the Kinesis stream to consume from.
+            BatchSize: 100 # Number of records to process in a single batch.
+            StartingPosition: LATEST # Start reading from the latest records in the stream.
+            # You can also use TRIM_HORIZON to read from the beginning of the stream.
+
+  # 3. DynamoDB Table
+  # This resource defines the DynamoDB table to store the processed network topology data.
+  NetworkTopologyDataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: network-topology-data # Name of the DynamoDB table.
+      BillingMode: PAY_PER_REQUEST # On-demand billing mode for cost efficiency.
+      AttributeDefinitions:
+        - AttributeName: LinkId # Defines the partition key.
+          AttributeType: S # 'S' for String type.
+        - AttributeName: Timestamp # Defines the sort key.
+          AttributeType: S # 'S' for String type.
+      KeySchema:
+        - AttributeName: LinkId
+          KeyType: HASH # Partition key.
+        - AttributeName: Timestamp
+          KeyType: RANGE # Sort key.
+      Tags:
+        - Key: Project
+          Value: RealtimeDataPipeline
+        - Key: Component
+          Value: DynamoDBTable
+
+Outputs:
+  # Output the ARN of the Kinesis Stream.
+  KinesisStreamArn:
+    Description: "ARN of the Kinesis Data Stream"
+    Value: !GetAtt NetworkDataStream.Arn
+
+  # Output the Name of the Kinesis Stream.
+  KinesisStreamName:
+    Description: "Name of the Kinesis Data Stream"
+    Value: !Ref NetworkDataStream
+
+  # Output the Name of the DynamoDB Table.
+  DynamoDBTableName:
+    Description: "Name of the DynamoDB Table"
+    Value: !Ref NetworkTopologyDataTable
+
+  # Output the ARN of the Lambda Function.
+  LambdaFunctionArn:
+    Description: "ARN of the Kinesis Processor Lambda Function"
+    Value: !GetAtt KinesisProcessorLambda.Arn

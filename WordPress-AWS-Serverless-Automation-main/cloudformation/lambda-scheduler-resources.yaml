@@ -1,0 +1,233 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation template to deploy an AWS Lambda function and CloudWatch Event Rules for EC2 instance scheduling. This controls the start/stop of the Dev/Test WordPress instance.
+
+Parameters:
+  DevTestInstanceId:
+    Description: The Instance ID of the Dev/Test WordPress EC2 instance that this scheduler will manage (e.g., i-0abcdef1234567890).
+    Type: String
+    ConstraintDescription: Must be a valid EC2 Instance ID.
+
+  # Cron expression for starting the instance. (9 AM BST is 8 AM UTC)
+  StartSchedule:
+    Description: Cron expression for starting the dev/test instance. Default is Mon-Fri 8 AM UTC (9 AM BST).
+    Type: String
+    Default: "cron(0 8 ? * MON-FRI *)" # Cron format: minute hour day-of-month month day-of-week year (optional).
+                                       # 0 8 ? * MON-FRI * means 0 minutes past 8 AM, any day of month, any month, Monday-Friday.
+
+  # Cron expression for stopping the instance. (6 PM BST is 5 PM UTC)
+  StopSchedule:
+    Description: Cron expression for stopping the dev/test instance. Default is Mon-Fri 5 PM UTC (6 PM BST).
+    Type: String
+    Default: "cron(0 17 ? * MON-FRI *)" # 0 minutes past 17:00 (5 PM) UTC, any day of month, any month, Monday-Friday.
+
+Resources:
+  # IAM Role for Lambda Function
+  # This role grants the Lambda function the necessary permissions to execute and to interact with EC2.
+  EC2SchedulerLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com # Allows the Lambda service to assume this role
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      Policies:
+        # Policy to allow Lambda to start/stop specific EC2 instances and describe instances.
+        - PolicyName: EC2StartStopPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:StartInstances
+                  - ec2:StopInstances
+                Resource:
+                  # Restrict the Lambda to only start/stop the specific Dev/Test instance by its ARN.
+                  - !Sub "arn:aws:ec2:<span class="math-inline">\{AWS\:\:Region\}\:</span>{AWS::AccountId}:instance/<span class="math-inline">\{DevTestInstanceId\}"
+Condition\:
+\# This condition adds an extra layer of security, ensuring the role can only
+\# act on instances with these specific tags\.
+StringEquals\:
+"ec2\:ResourceTag/Environment"\: "Development"
+"ec2\:ResourceTag/AutoSchedule"\: "True"
+\- Effect\: Allow
+Action\:
+\- ec2\:DescribeInstances \# Required for Lambda to look up instance state/details
+Resource\: "\*" \# Describe actions often require "\*" resource
+\- Effect\: Allow \# Permissions for Lambda to write logs <3\>to CloudWatch Logs for debugging and monitoring
+Action\:
+\- logs\:CreateLogGroup
+\- logs\:CreateLogStream
+\- logs\:PutLogEvents
+Resource\: \!Sub</3\> "arn\:aws\:logs\:</span>{AWS::Region}:<span class="math-inline">\{AWS\:\:AccountId\}\:log\-group\:/aws/lambda/</span>{EC2SchedulerLambdaFunction}:*"
+
+  # AWS Lambda Function for EC2 Scheduling
+  # This is the serverless function that will perform the start/stop actions.
+  EC2SchedulerLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: WordPressDevTestScheduler # A descriptive name for the Lambda function
+      Handler: ec2_scheduler.handler # Specifies the Python file (ec2_scheduler.py) and the function (handler) to execute
+      Runtime: python3.9 # Specify the Python runtime version (choose a current, supported version)
+      Role: !GetAtt EC2SchedulerLambdaRole.Arn # Attaches the IAM role defined above
+      Timeout: 30 # Maximum execution time for the Lambda function in seconds
+      MemorySize: 128 # Minimum memory allocated to the Lambda function (cost-effective)
+      Code:
+        # The Code property contains the inline Python script, base64 encoded by CloudFormation from the zip file.
+        # This assumes ec2_scheduler.zip is in the same directory as this CloudFormation template during deployment.
+        ZipFile: |
+          import boto3
+          import json
+          import logging
+
+          # Configure logging for the Lambda function
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO) # Set logging level to INFO for general messages
+
+          def handler(event, context):
+              """
+              Lambda handler function to start or stop EC2 instances based on the
+              'action' and 'instance_id' provided in the event input from CloudWatch Events.
+
+              Expected event input structure:
+              {
+                "action": "start"|"stop",
+                "instance_id": "i-xxxxxxxxxxxxxxxxx"
+              }
+              """
+              ec2 = boto3.client('ec2') # Initialize the EC2 client using boto3
+
+              # Extract instance_id and action from the event payload
+              instance_id = event.get('instance_id')
+              action = event.get('action')
+
+              # Basic input validation
+              if not instance_id:
+                  logger.error("Error: Instance ID not provided in the event input.")
+                  return {
+                      'statusCode': 400,
+                      'body': json.dumps('Error: Instance ID is required.')
+                  }
+
+              if action not in ['start', 'stop']:
+                  logger.error(f"Error: Invalid action '{action}' specified for instance {instance_id}. Must be 'start' or 'stop'.")
+                  return {
+                      'statusCode': 400,
+                      'body': json.dumps(f"Error: Invalid action '{action}'.")
+                  }
+
+              try:
+                  if action == 'start':
+                      # Attempt to start the EC2 instance
+                      logger.info(f"Attempting to start instance: {instance_id}")
+                      response = ec2.start_instances(InstanceIds=[instance_id], DryRun=False)
+                      logger.info(f"Start instance response: {json.dumps(response)}")
+                      message = f"Successfully initiated start for instance {instance_id}."
+                  elif action == 'stop':
+                      # Attempt to stop the EC2 instance
+                      logger.info(f"Attempting to stop instance: {instance_id}")
+                      response = ec2.stop_instances(InstanceIds=[instance_id], DryRun=False)
+                      logger.info(f"Stop instance response: {json.dumps(response)}")
+                      message = f"Successfully initiated stop for instance {instance_id}."
+
+                  # Return a successful response
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps(message)
+                  }
+
+              except ec2.exceptions.ClientError as e:
+                  # Handle specific EC2 client errors (e.g., instance already in desired state)
+                  error_code = e.response.get("Error", {}).get("Code")
+                  if error_code == 'IncorrectInstanceState':
+                      logger.warning(f"Instance {instance_id} is already in the target state ({action}). No action taken.")
+                      return {
+                          'statusCode': 200,
+                          'body': json.dumps(f"Instance {instance_id} is already {action}ed.")
+                      }
+                  else:
+                      logger.error(f"AWS EC2 Client Error for {instance_id} during {action}: {e}")
+                      return {
+                          'statusCode': 500,
+                          'body': json.dumps(f"AWS EC2 Client Error: {str(e)}")
+                      }
+              except Exception as e:
+                  # Catch any other unexpected errors
+                  logger.error(f"Unexpected error processing action '{action}' for instance {instance_id}: {e}")
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps(f"Unexpected error: {str(e)}")
+                  }
+      Tags:
+        - Key: Name
+          Value: WordPressDevTestSchedulerLambda # Tag for Lambda function
+
+  # CloudWatch Event Rule to Start Dev/Test Instance
+  # This rule triggers the Lambda function at the specified start time (9 AM BST / 8 AM UTC).
+  StartDevTestInstanceRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Scheduled rule to start the Dev/Test WordPress instance during business hours (Mon-Fri 9 AM BST).
+      ScheduleExpression: !Ref StartSchedule # Uses the cron expression from parameters
+      State: ENABLED # Ensures the rule is active upon deployment
+      Targets:
+        - Arn: !GetAtt EC2SchedulerLambdaFunction.Arn # The ARN of the Lambda function to invoke
+          Id: StartDevTestInstanceTarget # Unique ID for this target
+          Input: !Sub | # JSON payload passed to the Lambda function
+            {
+              "action": "start",
+              "instance_id": "<span class="math-inline">\{DevTestInstanceId\}"
+\}
+\# Permission for CloudWatch Events to invoke the Start Lambda Function
+\# This is a critical permission that allows the CloudWatch Event Rule to trigger your Lambda\.
+StartLambdaPermission\:
+Type\: AWS\:\:Lambda\:\:Permission
+Properties\:
+FunctionName\: \!GetAtt EC2SchedulerLambdaFunction\.Arn \# The Lambda function that will be invoked
+Action\: lambda\:InvokeFunction \# The specific action allowed
+Principal\: events\.amazonaws\.com \# The service that is granted permission \(CloudWatch Events\)
+SourceArn\: \!GetAtt StartDevTestInstanceRule\.Arn \# Restricts permission to this specific rule's ARN
+\# CloudWatch Event Rule to Stop Dev/Test Instance
+\# This rule triggers the Lambda function at the specified stop time \(6 PM BST / 5 PM UTC\)\.
+StopDevTestInstanceRule\:
+Type\: AWS\:\:Events\:\:Rule
+Properties\:
+Description\: Scheduled rule to stop the Dev/Test WordPress instance outside business hours \(Mon\-Fri 6 PM BST\)\.
+ScheduleExpression\: \!Ref StopSchedule \# Uses the cron expression from parameters
+State\: ENABLED
+Targets\:
+\- Arn\: \!GetAtt EC2SchedulerLambdaFunction\.Arn
+Id\: StopDevTestInstanceTarget
+Input\: \!Sub \|
+\{
+"action"\: "stop",
+"instance\_id"\: "</span>{DevTestInstanceId}"
+            }
+
+  # Permission for CloudWatch Events to invoke the Stop Lambda Function
+  StopLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt EC2SchedulerLambdaFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt StopDevTestInstanceRule.Arn
+
+Outputs:
+  LambdaFunctionName:
+    Description: Name of the Lambda function responsible for EC2 scheduling.
+    Value: !Ref EC2SchedulerLambdaFunction
+  LambdaFunctionARN:
+    Description: ARN of the Lambda function responsible for EC2 scheduling.
+    Value: !GetAtt EC2SchedulerLambdaFunction.Arn
+  StartSchedulerRuleARN:
+    Description: ARN of the CloudWatch Event Rule that starts the instance.
+    Value: !GetAtt StartDevTestInstanceRule.Arn
+  StopSchedulerRuleARN:
+    Description: ARN of the CloudWatch Event Rule that stops the instance.
+    Value: !GetAtt StopDevTestInstanceRule.Arn
