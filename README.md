@@ -47,6 +47,20 @@ Python Development: Backend logic and application simulators.
 
 Frontend Development: HTML, CSS, JavaScript.
 
+### Certifications & Achievements:
+AWS Certified Solutions Architect – Associate (Amazon, May 2025)
+
+AWS Cloud Technical Essentials (Simplilearn, Training)
+
+AWS Database Migration (Simplilearn, Training)
+
+AWS Master's Cloud Architect (Simplilearn, Feb 2025)
+
+AWS Solutions Architect Associate Level (Simplilearn, Training)
+
+AWS SysOps Associate, Developer Associate (Simplilearn, Training)
+
+
 ## Featured Projects:
 ### 1. EC2 Monitoring & IAM Access Management
 This project demonstrates essential operational practices on AWS: monitoring EC2 instance performance with CloudWatch alarms and managing user access securely with IAM Groups and Users. It showcases how to set up proactive alerts for infrastructure health and define granular permissions for cloud resources.
