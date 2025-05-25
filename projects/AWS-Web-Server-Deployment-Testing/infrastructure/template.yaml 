@@ -1,0 +1,283 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: AWS SAM template for Web Server Deployment and Load Balancing with EC2 and ALB.
+
+# Parameters allow you to customize the deployment without editing the template directly.
+Parameters:
+  # AMI ID for the Windows Server 2022.
+  # IMPORTANT: Find a suitable AMI ID for your region.
+  # Example for us-east-1: ami-0371a5c68b75f92ff (Windows_Server-2022-R2_RTM-English-64Bit-Base)
+  # You can find regional AMIs here: https://aws.amazon.com/amazon-linux-2/ or by using AWS CLI:
+  # aws ec2 describe-images --owners amazon --filters "Name=name,Values=Windows_Server-2022-R2_RTM-English-64Bit-Base*" --query "Images[*].[ImageId,CreationDate]" --region us-east-1 --output text
+  WindowsServer2022AmiId:
+    Type: String
+    Default: ami-0371a5c68b75f92ff # Replace with a Windows 2022 AMI ID for your region.
+    Description: AMI ID for the Windows Server 2022 R2 EC2 instances.
+
+  InstanceType:
+    Type: String
+    Default: t2.medium # t2.micro is often too small for Windows, t2.medium is a safer choice.
+    Description: EC2 instance type for the Windows Servers.
+
+  KeyPairName:
+    Type: String
+    Description: Name of an existing EC2 KeyPair for RDP access to the instances.
+    Default: your-ec2-key-pair # IMPORTANT: Replace with your actual key pair name.
+
+  # VPC and Subnet IDs are crucial for deploying resources.
+  # IMPORTANT: Replace these with actual IDs from your AWS account.
+  # You can get these from the VPC console.
+  VpcId:
+    Type: String
+    Description: The ID of the VPC where resources will be deployed.
+    Default: vpc-0abcdef1234567890 # Replace with your VPC ID.
+
+  PublicSubnet1Id:
+    Type: String
+    Description: The ID of the first public subnet.
+    Default: subnet-0abcdef1234567891 # Replace with your first public subnet ID.
+
+  PublicSubnet2Id:
+    Type: String
+    Description: The ID of the second public subnet.
+    Default: subnet-0abcdef1234567892 # Replace with your second public subnet ID.
+
+Resources:
+  # 1. Security Groups
+  # Security Group for EC2 instances: Allows RDP and HTTP access.
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow RDP (3389) and HTTP (80) access to EC2 instances
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3389 # RDP default port
+          ToPort: 3389
+          CidrIp: 0.0.0.0/0 # IMPORTANT: Restrict this to your specific IP range for production.
+          Description: Allow RDP from anywhere (for initial setup/debugging)
+        - IpProtocol: tcp
+          FromPort: 80 # HTTP default port
+          ToPort: 80
+          CidrIp: 0.0.0.0/0 # Allows HTTP access from anywhere (ALB will use this).
+          Description: Allow HTTP from anywhere
+      Tags:
+        - Key: Project
+          Value: WebServerDeploymentTesting
+        - Key: Component
+          Value: EC2SecurityGroup
+
+  # Security Group for the Application Load Balancer: Allows HTTP from anywhere.
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP access to ALB
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0 # Allows HTTP access from anywhere.
+          Description: Allow HTTP from anywhere
+      Tags:
+        - Key: Project
+          Value: WebServerDeploymentTesting
+        - Key: Component
+          Value: ALBSecurityGroup
+
+  # 2. Initial EC2 Instance for AMI Creation
+  # This instance is launched to be configured with IIS and a website, then an AMI is created from it.
+  # This is a manual step after deployment of this stack.
+  InitialWebServerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref WindowsServer2022R2AmiId
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyPairName
+      SecurityGroupIds:
+        - !GetAtt EC2SecurityGroup.GroupId
+      # UserData script to install IIS and create a basic index.html.
+      # This script runs when the instance first starts.
+      UserData: !Base64 |
+        <powershell>
+        # Install IIS Role
+        Install-WindowsFeature -Name Web-Server -IncludeManagementTools
+
+        # Create a simple static HTML file
+        $htmlContent = @"
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Heaven Classics Website</title>
+            <style>
+                body { font-family: sans-serif; text-align: center; margin-top: 50px; background-color: #f0f8ff; color: #333; }
+                h1 { color: #0056b3; }
+                p { font-size: 1.2em; }
+            </style>
+        </head>
+        <body>
+            <h1>Welcome to Heaven Classics</h1>
+            <p>Your website is now running on this EC2 Instance!</p>
+            <p>This is the initial server for AMI creation.</p>
+        </body>
+        </html>
+        "@
+        $htmlContent | Out-File -FilePath "C:\inetpub\wwwroot\index.html" -Encoding UTF8
+
+        # Start IIS service (it should start automatically after installation, but good to ensure)
+        Start-Service W3SVC
+        </powershell>
+      Tags:
+        - Key: Name
+          Value: InitialHeavenClassicsWebServer
+        - Key: Project
+          Value: WebServerDeploymentTesting
+        - Key: Role
+          Value: AMICreationSource
+
+  # 3. Application Load Balancer (ALB)
+  # The ALB distributes incoming web traffic across healthy EC2 instances.
+  WebServerALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: HeavenClassicsALB
+      Scheme: internet-facing # Accessible from the internet.
+      Subnets:
+        - !Ref PublicSubnet1Id # Deploy ALB across multiple public subnets for high availability.
+        - !Ref PublicSubnet2Id
+      SecurityGroups:
+        - !GetAtt ALBSecurityGroup.GroupId # Attach the ALB-specific security group.
+      Type: application # Specify it's an Application Load Balancer.
+      Tags:
+        - Key: Project
+          Value: WebServerDeploymentTesting
+        - Key: Component
+          Value: ALB
+
+  # Target Group for the ALB
+  # Registers the EC2 instances that will serve the web traffic.
+  WebServerTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: HeavenClassicsTargetGroup
+      Port: 80 # The port on the target instances (EC2) that the ALB sends traffic to.
+      Protocol: HTTP
+      VpcId: !Ref VpcId
+      HealthCheckIntervalSeconds: 30 # How often the ALB checks instance health.
+      HealthCheckPath: /index.html # Path to check on the web server.
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2 # Number of consecutive successful health checks.
+      UnhealthyThresholdCount: 2 # Number of consecutive failed health checks.
+      TargetType: instance # Targets are EC2 instances.
+      Tags:
+        - Key: Project
+          Value: WebServerDeploymentTesting
+        - Key: Component
+          Value: TargetGroup
+
+  # Listener for the ALB
+  # Listens for incoming HTTP traffic on port 80 and forwards to the Target Group.
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref WebServerALB # Attach to the ALB.
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref WebServerTargetGroup # Forward traffic to this target group.
+      Tags:
+        - Key: Project
+          Value: WebServerDeploymentTesting
+        - Key: Component
+          Value: ALBListener
+
+  # 4. EC2 Instances for Load Balancing (Launched from AMI)
+  # These instances will be launched using the custom AMI created from InitialWebServerInstance.
+  # We define two instances directly for simplicity in this prototype.
+  # In a real-world scenario, these would be part of an Auto Scaling Group.
+  WebServerInstance1:
+    Type: AWS::EC2::Instance
+    Properties:
+      # IMPORTANT: Replace !Ref WindowsServer2022R2AmiId with the ID of your *custom AMI*
+      # created from InitialWebServerInstance after it's configured.
+      ImageId: !Ref WindowsServer2022R2AmiId # Replace with your custom AMI ID after creation.
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyPairName
+      SecurityGroupIds:
+        - !GetAtt EC2SecurityGroup.GroupId
+      Tags:
+        - Key: Name
+          Value: HeavenClassicsWebServer1
+        - Key: Project
+          Value: WebServerDeploymentTesting
+        - Key: Role
+          Value: WebServer
+
+  WebServerInstance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      # IMPORTANT: Replace !Ref WindowsServer2022R2AmiId with the ID of your *custom AMI*
+      # created from InitialWebServerInstance after it's configured.
+      ImageId: !Ref WindowsServer2022R2AmiId # Replace with your custom AMI ID after creation.
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyPairName
+      SecurityGroupIds:
+        - !GetAtt EC2SecurityGroup.GroupId
+      Tags:
+        - Key: Name
+          Value: HeavenClassicsWebServer2
+        - Key: Project
+          Value: WebServerDeploymentTesting
+        - Key: Role
+          Value: WebServer
+
+  # Attach WebServerInstance1 to the Target Group
+  ALBTargetGroupAttachment1:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroupAttachment
+    Properties:
+      TargetGroupArn: !Ref WebServerTargetGroup
+      Instance: !Ref WebServerInstance1
+      Port: 80
+
+  # Attach WebServerInstance2 to the Target Group
+  ALBTargetGroupAttachment2:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroupAttachment
+    Properties:
+      TargetGroupArn: !Ref WebServerTargetGroup
+      Instance: !Ref WebServerInstance2
+      Port: 80
+
+Outputs:
+  # Output the Public IP of the initial instance (for manual configuration and AMI creation).
+  InitialWebServerPublicIp:
+    Description: "Public IP of the initial Windows Server EC2 instance (for IIS setup & AMI creation)"
+    Value: !GetAtt InitialWebServerInstance.PublicIp
+
+  # Output the DNS Name of the Application Load Balancer.
+  # This is the URL you will use to access your website.
+  ALBDnsName:
+    Description: "DNS Name of the Application Load Balancer"
+    Value: !GetAtt WebServerALB.DNSName
+
+  # Output the ARN of the ALB.
+  ALBArn:
+    Description: "ARN of the Application Load Balancer"
+    Value: !Ref WebServerALB
+
+  # Output the ARN of the Target Group.
+  TargetGroupArn:
+    Description: "ARN of the ALB Target Group"
+    Value: !Ref WebServerTargetGroup
+
+  # Output the Instance IDs of the web servers behind the ALB.
+  WebServerInstance1Id:
+    Description: "ID of the first web server instance behind ALB"
+    Value: !Ref WebServerInstance1
+
+  WebServerInstance2Id:
+    Description: "ID of the second web server instance behind ALB"
+    Value: !Ref WebServerInstance2
