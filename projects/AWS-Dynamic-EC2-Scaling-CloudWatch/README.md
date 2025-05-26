@@ -62,7 +62,7 @@ The entire infrastructure (EC2 Launch Template, Auto Scaling Group, CloudWatch A
 
 **AWS SAM for Infrastructure as Code:** Utilized to define the entire scaling stack declaratively, enabling automated deployments and versioning of the infrastructure.
 
-## Architecture Diagram
+## Architecture Diagram:
 
 ![Architecture Diagram](diagrams/diagram-architecture.png)
 
