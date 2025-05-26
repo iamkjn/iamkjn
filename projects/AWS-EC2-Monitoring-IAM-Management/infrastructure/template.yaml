@@ -1,0 +1,193 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: AWS SAM template for EC2 Monitoring with CloudWatch Alarms and IAM Management.
+
+# Parameters allow you to customize the deployment without editing the template directly.
+Parameters:
+  # AMI ID for the EC2 Windows 2022 Server instance.
+  # IMPORTANT: Find a suitable AMI ID for your region.
+  # Example for us-east-1: ami-0371a5c68b75f92ff (Windows_Server-2022_RTM-English-64Bit-Base)
+  # You can find regional AMIs in the EC2 Console or by using AWS CLI:
+  # aws ec2 describe-images --owners amazon --filters "Name=name,Values=Windows_Server-2022-R2_RTM-English-64Bit-Base*" --query "Images[*].[ImageId,CreationDate]" --region us-east-1 --output text
+  WindowsServer2022AmiId:
+    Type: String
+    Default: ami-0371a5c68b75f92ff # Replace with a Windows 2022 AMI ID for your region.
+    Description: AMI ID for the Windows Server 2022 EC2 instance.
+
+  InstanceType:
+    Type: String
+    Default: t2.medium # t2.micro is often too small for Windows, t2.medium is a safer choice.
+    Description: EC2 instance type for the Windows Server.
+
+  KeyPairName:
+    Type: String
+    Description: Name of an existing EC2 KeyPair for RDP access to the instance.
+    Default: your-ec2-key-pair # IMPORTANT: Replace with your actual key pair name.
+
+  # Email address for CloudWatch alarm notifications.
+  AlarmNotificationEmail:
+    Type: String
+    Default: HCMonitor@HeavenClassics.com # IMPORTANT: Replace with your actual email.
+    Description: Email address to receive CloudWatch alarm notifications.
+
+  # Name for the new IAM user.
+  NewIAMUserName:
+    Type: String
+    Default: HeavenClassicsAdminUser
+    Description: Name for the new IAM user with administrator access.
+
+Resources:
+  # 1. EC2 Instance (Windows Server 2022)
+  # This resource defines the Windows EC2 server instance.
+  WindowsServerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref WindowsServer2022AmiId # Uses the AMI ID parameter.
+      InstanceType: !Ref InstanceType # Uses the instance type parameter.
+      KeyName: !Ref KeyPairName # Associates an SSH/RDP key pair for access.
+      Monitoring: true # Enable detailed monitoring (1-minute intervals) for CloudWatch.
+      SecurityGroupIds:
+        - !GetAtt EC2SecurityGroup.GroupId # Attach the security group for RDP.
+      Tags:
+        - Key: Name
+          Value: HeavenClassicsWindowsServer
+        - Key: Project
+          Value: EC2MonitoringIAM
+        - Key: Environment
+          Value: Demo
+
+  # Security Group for the EC2 instance
+  # Allows inbound RDP (Remote Desktop Protocol) access.
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow RDP access to Windows EC2 instance
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3389 # RDP default port
+          ToPort: 3389
+          CidrIp: 0.0.0.0/0 # IMPORTANT: Restrict this to your specific IP range for production.
+      Tags:
+        - Key: Project
+          Value: EC2MonitoringIAM
+        - Key: Component
+          Value: SecurityGroup
+
+  # 2. CloudWatch Alarm for CPU Utilization
+  # This alarm monitors the CPU utilization of the EC2 instance.
+  LowCPUUtilizationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "HeavenClassics-${WindowsServerInstance}-LowCPUUtilization"
+      AlarmDescription: "Alarm if EC2 CPU Utilization falls below 3% for 15 minutes (3 consecutive 5-min periods)."
+      ComparisonOperator: LessThanThreshold # Triggers if metric is LESS THAN the threshold.
+      EvaluationPeriods: 3 # Number of periods over which the statistic is applied.
+      MetricName: CPUUtilization # Standard EC2 metric.
+      Namespace: AWS/EC2 # Namespace for EC2 metrics.
+      Period: 300 # Period in seconds over which the statistic is applied (5 minutes).
+      Statistic: Average # Average CPU utilization.
+      Threshold: 3 # Threshold for the alarm (3%).
+      ActionsEnabled: true
+      AlarmActions:
+        - !Ref NotificationSNSTopic # When alarm state is ALARM, publish to this SNS topic.
+      Dimensions: # Specify the EC2 instance to monitor.
+        - Name: InstanceId
+          Value: !Ref WindowsServerInstance
+      TreatMissingData: notBreaching # Do not alarm if data is missing.
+      Tags:
+        - Key: Project
+          Value: EC2MonitoringIAM
+        - Key: Type
+          Value: CloudWatchAlarm
+
+  # 3. SNS Topic for Email Notifications
+  # This topic receives alerts from CloudWatch and sends emails.
+  NotificationSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: HeavenClassicsMonitoringAlerts
+      TopicName: !Sub "HeavenClassics-EC2-Monitoring-Alerts-${AWS::Region}"
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref AlarmNotificationEmail # Email address from parameter.
+      Tags:
+        - Key: Project
+          Value: EC2MonitoringIAM
+        - Key: Type
+          Value: SNSTopic
+
+  # SNS Topic Policy: Allows CloudWatch to publish messages to this topic.
+  SNSTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref NotificationSNSTopic
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudwatch.amazonaws.com # CloudWatch service principal.
+            Action: sns:Publish
+            Resource: !Ref NotificationSNSTopic
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub "arn:aws:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:*" # Only allow publish from alarms in this account/region
+
+  # 4. IAM Group for Administrators
+  # This group provides full administrative access.
+  AdministratorGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: AdministratorGroup
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess # Attach the AWS managed AdministratorAccess policy.
+      Tags:
+        - Key: Project
+          Value: EC2MonitoringIAM
+        - Key: Type
+          Value: IAMGroup
+
+  # 5. IAM User for an Employee
+  # This user will be added to the AdministratorGroup.
+  HeavenClassicsAdminUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Ref NewIAMUserName # User name from parameter.
+      Groups:
+        - !Ref AdministratorGroup # Add the user to the AdministratorGroup.
+      Tags:
+        - Key: Project
+          Value: EC2MonitoringIAM
+        - Key: Type
+          Value: IAMUser
+
+Outputs:
+  # Output the EC2 Instance ID.
+  WindowsServerInstanceId:
+    Description: "ID of the Windows Server EC2 instance"
+    Value: !Ref WindowsServerInstance
+
+  # Output the Public IP Address of the EC2 Instance (for RDP access).
+  WindowsServerPublicIp:
+    Description: "Public IP Address of the Windows Server EC2 instance"
+    Value: !GetAtt WindowsServerInstance.PublicIp
+
+  # Output the CloudWatch Alarm Name.
+  LowCPUAlarmName:
+    Description: "Name of the CloudWatch Alarm for low CPU utilization"
+    Value: !Ref LowCPUUtilizationAlarm
+
+  # Output the ARN of the SNS Topic for notifications.
+  NotificationTopicArn:
+    Description: "ARN of the SNS Topic for CloudWatch alarm notifications"
+    Value: !Ref NotificationSNSTopic
+
+  # Output the Name of the IAM Administrator Group.
+  IAMAdministratorGroupName:
+    Description: "Name of the IAM Administrator Group"
+    Value: !Ref AdministratorGroup
+
+  # Output the Name of the created IAM User.
+  IAMNewUserName:
+    Description: "Name of the new IAM user with administrator access"
+    Value: !Ref HeavenClassicsAdminUser
