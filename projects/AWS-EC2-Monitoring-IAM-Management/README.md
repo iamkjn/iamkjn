@@ -65,7 +65,7 @@ Managed AdministratorAccess Policy: Used for the Administrator Group to quickly 
 
 Infrastructure as Code (AWS SAM): All resources are defined in template.yaml to ensure automated, repeatable deployments, version control, and traceability of infrastructure changes.
 
-## Diagrams:
+## Architecture Diagram:
 
 <img src="diagrams/diagram-architecture.png" align="center" alt="Simplilearn AWS Masters Certificate" width="400" height="1200">
 
