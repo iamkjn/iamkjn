@@ -1,0 +1,319 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: AWS SAM template for Automated File Processing and Email Notification System.
+
+# Parameters for customization
+Parameters:
+  # Domain name you own and want to use for receiving emails (e.g., example.com)
+  # IMPORTANT: You must own and verify this domain in SES after deployment.
+  # Also, update your domain's NS records to point to Route 53.
+  DomainName:
+    Type: String
+    Description: Your domain name for SES email receiving (e.g., yourdomain.com).
+
+  # Email address that will send notifications (e.g., no-reply@yourdomain.com)
+  # IMPORTANT: This email address must be verified in SES.
+  SenderEmailAddress:
+    Type: String
+    Description: The verified email address used to send notifications (e.g., no-reply@yourdomain.com).
+
+  # Email address that will receive delete replies (e.g., delete@yourdomain.com)
+  # IMPORTANT: This email address must be verified in SES.
+  DeletionEmailAddress:
+    Type: String
+    Description: The email address that will receive 'delete' replies (e.g., delete@yourdomain.com).
+
+Resources:
+  # 1. S3 Buckets
+  # S3 Bucket for initial file uploads.
+  SourceFilesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${AWS::StackName}-source-files-${AWS::AccountId}" # Unique bucket name
+      AccessControl: Private # Keep private, access via presigned URLs
+      VersioningConfiguration:
+        Status: Enabled # Recommended for data integrity
+      Tags:
+        - Key: Project
+          Value: FileProcessingEmailAutomation
+        - Key: Type
+          Value: Source
+
+  # S3 Bucket where files are moved after a delete request.
+  DeletedFilesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${AWS::StackName}-deleted-files-${AWS::AccountId}" # Unique bucket name
+      AccessControl: Private
+      Tags:
+        - Key: Project
+          Value: FileProcessingEmailAutomation
+        - Key: Type
+          Value: Deleted
+
+  # 2. Lambda Functions
+  # Lambda to generate S3 presigned URLs for direct client upload.
+  UploadUrlGeneratorLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/ # Points to the backend folder
+      Handler: upload_url_generator_lambda.lambda_handler
+      Runtime: python3.9
+      MemorySize: 128
+      Timeout: 10
+      Environment:
+        Variables:
+          SOURCE_BUCKET_NAME: !Ref SourceFilesBucket # Pass source bucket name to Lambda
+      Policies:
+        - S3PresignUrlGetObjectPolicy: # Allows generating presigned URLs for PUT
+            BucketName: !Ref SourceFilesBucket
+        - S3WritePolicy: # Allows writing to the source bucket (for presigned PUT)
+            BucketName: !Ref SourceFilesBucket
+        - AWSLambdaBasicExecutionRole # For CloudWatch logs
+      Events:
+        GenerateUrlApi:
+          Type: Api
+          Properties:
+            Path: /generate-upload-url
+            Method: POST
+            Cors:
+              AllowOrigin: "'*'"
+              AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              AllowMethods: "'POST,OPTIONS'"
+
+  # Lambda triggered by S3 upload, processes file, sends email notification.
+  FileProcessorNotifierLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/
+      Handler: file_processor_notifier_lambda.lambda_handler
+      Runtime: python3.9
+      MemorySize: 128
+      Timeout: 30
+      Environment:
+        Variables:
+          SENDER_EMAIL: !Ref SenderEmailAddress # Pass sender email to Lambda
+          DELETION_DOMAIN: !Ref DomainName # Pass domain name for context
+      Policies:
+        - S3ReadPolicy: # Allows reading metadata from the source bucket
+            BucketName: !Ref SourceFilesBucket
+        - SESCrudPolicy: # Allows sending emails via SES
+            IdentityName: !Ref SenderEmailIdentity # Restrict to verified sender identity
+        - AWSLambdaBasicExecutionRole # For CloudWatch logs
+      Events:
+        S3UploadTrigger:
+          Type: S3
+          Properties:
+            Bucket: !Ref SourceFilesBucket
+            Events: s3:ObjectCreated:* # Trigger on any new object creation
+
+  # Lambda triggered by SQS, processes email replies, moves/deletes files.
+  EmailReplyProcessorLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/
+      Handler: email_reply_processor_lambda.lambda_handler
+      Runtime: python3.9
+      MemorySize: 128
+      Timeout: 30
+      Environment:
+        Variables:
+          SOURCE_BUCKET_NAME: !Ref SourceFilesBucket
+          DELETED_BUCKET_NAME: !Ref DeletedFilesBucket
+          SENDER_EMAIL: !Ref SenderEmailAddress # For sending confirmation emails
+      Policies:
+        - S3ReadWritePolicy: # Allows reading, copying, deleting objects in both buckets
+            BucketName: !Ref SourceFilesBucket
+        - S3ReadWritePolicy:
+            BucketName: !Ref DeletedFilesBucket
+        - SESCrudPolicy: # Allows sending confirmation emails
+            IdentityName: !Ref SenderEmailIdentity
+        - AWSLambdaBasicExecutionRole # For CloudWatch logs
+      Events:
+        SQSQueueTrigger:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt EmailReplyQueue.Arn # Triggered by messages in SQS queue
+            BatchSize: 10 # Process up to 10 messages at a time
+
+  # 3. SQS Queue
+  # Queue to buffer incoming email replies from SES.
+  EmailReplyQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${AWS::StackName}-email-reply-queue"
+      MessageRetentionPeriod: 345600 # 4 days (default)
+      Tags:
+        - Key: Project
+          Value: FileProcessingEmailAutomation
+        - Key: Type
+          Value: SQSQueue
+
+  # 4. SES (Simple Email Service)
+  # Verifies the sender email address.
+  SenderEmailIdentity:
+    Type: AWS::SES::EmailIdentity
+    Properties:
+      EmailIdentity: !Ref SenderEmailAddress # Email to verify
+
+  # Verifies the domain for sending and receiving emails.
+  DomainIdentity:
+    Type: AWS::SES::EmailIdentity
+    Properties:
+      EmailIdentity: !Ref DomainName # Domain to verify
+
+  # SES Receipt Rule Set: Container for receipt rules.
+  # It's important to set this as the active rule set.
+  EmailReceiptRuleSet:
+    Type: AWS::SES::ReceiptRuleSet
+    Properties:
+      RuleSetName: !Sub "${AWS::StackName}-receipt-rule-set"
+
+  # Active Receipt Rule Set: Ensures the above rule set is active.
+  ActiveEmailReceiptRuleSet:
+    Type: AWS::SES::ActiveReceiptRuleSet
+    Properties:
+      RuleSetName: !Ref EmailReceiptRuleSet
+
+  # SES Receipt Rule: Captures emails sent to DeletionEmailAddress and sends to SQS.
+  EmailToSQSRule:
+    Type: AWS::SES::ReceiptRule
+    Properties:
+      RuleSetName: !Ref EmailReceiptRuleSet
+      Recipients:
+        - !Ref DeletionEmailAddress # The email address that will receive replies
+      Actions:
+        - SQSAction:
+            Encoding: UTF8 # Encoding for the email content in SQS
+            QueueArn: !GetAtt EmailReplyQueue.Arn # ARN of the SQS queue to send email to
+            TopicArn: !GetAtt SESEmailReceiveTopic.Arn # Optional: SNS topic for notifications
+        - S3Action: # Store raw email in S3 for Lambda to retrieve
+            BucketName: !Ref SourceFilesBucket # Store raw emails in the source bucket (or a dedicated one)
+            ObjectKeyPrefix: raw-emails/ # Prefix for raw email objects in S3
+      ScanEnabled: true # Enable virus scanning
+      TlsPolicy: Require # Require TLS for inbound emails
+      Enabled: true # Ensure the rule is enabled
+
+  # SNS Topic for SES to notify Lambda about incoming emails (optional, but good practice for SQS action)
+  SESEmailReceiveTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "${AWS::StackName}-ses-email-receive-topic"
+      Tags:
+        - Key: Project
+          Value: FileProcessingEmailAutomation
+        - Key: Type
+          Value: SNSTopic
+
+  # Permission for SES to publish to the SQS queue.
+  SESQueuePermission:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref EmailReplyQueue
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ses.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt EmailReplyQueue.Arn
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+                aws:SourceArn: !GetAtt EmailReceiptRuleSet.Arn
+
+  # Permission for SES to publish to the SNS topic.
+  SNSTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref SESEmailReceiveTopic
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ses.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref SESEmailReceiveTopic
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+                aws:SourceArn: !GetAtt EmailReceiptRuleSet.Arn
+
+  # 5. Route 53 (DNS Configuration)
+  # Hosted Zone for your domain.
+  # IMPORTANT: You must update your domain's NS records to point to the NS records of this Hosted Zone.
+  PublicHostedZone:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: !Ref DomainName # Your domain name
+      HostedZoneConfig:
+        Comment: Public Hosted Zone for file processing email automation.
+      Tags:
+        - Key: Project
+          Value: FileProcessingEmailAutomation
+        - Key: Type
+          Value: HostedZone
+
+  # MX Record for inbound email to SES.
+  # Points mail for your domain to SES mail servers.
+  MXRecord:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      HostedZoneId: !Ref PublicHostedZone
+      RecordSets:
+        - Name: !Ref DomainName
+          Type: MX
+          TTL: '300'
+          ResourceRecords:
+            # These are example SES MX records. You might need to get the exact ones from SES console
+            # after verifying your domain. For a workable prototype, these are typical.
+            - '10 inbound-smtp.eu-west-2.amazonaws.com' # Example for eu-west-2, adjust region
+            - '20 inbound-smtp.eu-west-2.amazonaws.com'
+            - '30 inbound-smtp.eu-west-2.amazonaws.com'
+
+  # TXT Record (SPF) for email authentication.
+  # Helps prevent your emails from being marked as spam.
+  SPFRecord:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      HostedZoneId: !Ref PublicHostedZone
+      RecordSets:
+        - Name: !Ref DomainName
+          Type: TXT
+          TTL: '300'
+          ResourceRecords:
+            - '"v=spf1 include:amazonses.com ~all"' # Standard SPF record for SES
+
+Outputs:
+  # Output the API Gateway URL for generating upload URLs.
+  UploadUrlApiEndpoint:
+    Description: "API Gateway endpoint for generating S3 presigned upload URLs"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/generate-upload-url"
+
+  # Output the S3 Source Bucket Name.
+  SourceBucketName:
+    Description: "Name of the S3 bucket for source files"
+    Value: !Ref SourceFilesBucket
+
+  # Output the S3 Deleted Bucket Name.
+  DeletedBucketName:
+    Description: "Name of the S3 bucket for deleted files"
+    Value: !Ref DeletedFilesBucket
+
+  # Output the SQS Queue URL for email replies.
+  EmailReplyQueueUrl:
+    Description: "URL of the SQS Queue for email replies"
+    Value: !Ref EmailReplyQueue
+
+  # Output the Hosted Zone ID.
+  HostedZoneId:
+    Description: "ID of the Route 53 Hosted Zone"
+    Value: !Ref PublicHostedZone
+
+  # Output the Name Servers for the Hosted Zone.
+  # You need to update your domain registrar's NS records with these values.
+  HostedZoneNameServers:
+    Description: "Name Servers for the Route 53 Hosted Zone (update your domain registrar)"
+    Value: !Join [", ", !GetAtt PublicHostedZone.NameServers]
