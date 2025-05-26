@@ -1,4 +1,5 @@
-# AWS Cloud Architecture Portfolio
+# AWS Cloud Architect <img src="certificates/aws-certified-solutions-architect-associate.png" align="center" alt="AWS WordPress Architecture Diagram" width="80" height="80"> <img src="certificates/AWS Certified Solutions Architect - Associate certificate.jpg" align="center" alt="AWS Certified Solutions Architect - Associate certificate" width="64" height="64">   <img src="certificates/Simplilearn AWS Masters Certificate.jpg" align="center" alt="Simplilearn AWS Masters Certificate" width="64" height="64"> <img src="certificates/Simplilearn AWS Solution Architect Associate Level Certificate.jpg" align="center" alt="Simplilearn AWS Solution Architect Associate Level Certificate" width="64" height="64"> <img src="certificates/Simplilearn AWS Developer Associate Certificate.jpg" align="center" alt="Simplilearn AWS Developer Associate Certificate" width="64" height="64"> <img src="certificates/Simplilearn AWS Database Migration Certificate.jpg" align="center" alt="Simplilearn AWS Database Migration Certificate" width="64" height="64"> <img src="certificates/Simplilearn AWS SysOps certificate.jpg" align="center" alt="Simplilearn AWS SysOps certificate" width="64" height="64"> <img src="certificates/Simplilearn AWS Cloud Technical Essentials certificate.jpg" align="center" alt="Simplilearn AWS Cloud Technical Essentials certificate" width="64" height="64">
+
 ## Empowering Organizations with Scalable, Flexible, and Resilient Cloud Architectures
 
 Welcome to my architectural showcase, demonstrating expertise in designing and implementing robust, scalable, and efficient cloud solutions on Amazon Web Services (AWS). This portfolio highlights my ability to leverage cloud-native services for automated workflows, dynamic infrastructure management, complex data processing, and building highly available, loosely coupled systems.
@@ -48,7 +49,7 @@ Python Development: Backend logic and application simulators.
 Frontend Development: HTML, CSS, JavaScript.
 
 ### Certifications & Achievements:
-AWS Certified Solutions Architect – Associate (Amazon, May 2025)
+AWS Certified Solutions Architect – Associate (Amazon, May 2025) 
 
 AWS Cloud Technical Essentials (Simplilearn, Training)
 
@@ -93,6 +94,5 @@ I deliver architectural solutions that bridge technical vision with critical bus
 ### Contact:
 Feel free to connect with me to discuss architectural challenges or opportunities:
 
-LinkedIn: [Your LinkedIn Profile URL]
-
-Email: [Your Email Address]
+📧 **Email:** [krunalnayak1409@gmail.com](mailto:krunalnayak1409@gmail.com)
+🌐 **LinkedIn:** [Krunal Nayak](https://www.linkedin.com/in/krunalnayak)
