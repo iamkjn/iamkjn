@@ -1,95 +1,284 @@
-# Dynamic EC2 Scaling with Auto Scaling & CloudWatch
+# Automated File Processing & Email Notification System
+
 ## Project Overview:
-This project demonstrates how to implement dynamic scaling for Amazon EC2 instances using AWS Auto Scaling and custom metrics published to Amazon CloudWatch. This architecture ensures that application compute capacity automatically adjusts to fluctuating demand, optimizing performance, user experience, and cost efficiency.
 
-### Problem Statement:
-Platforms like Hotstar or Amazon.com experience highly variable user traffic. Manually adding or removing servers (EC2 instances) to handle these fluctuations is inefficient, prone to errors, and costly due to over-provisioning during slack times or under-provisioning during peak loads, leading to poor customer satisfaction. On-premise solutions lack the elasticity to respond dynamically to demand.
+This project implements an end-to-end serverless workflow on AWS for file uploads, automated processing, email notifications, and file management based on email replies. It demonstrates a robust, event-driven architecture leveraging S3, Lambda, API Gateway, SES, SQS, and Route 53.
 
-The challenge is to automate the scaling of EC2 instances based on real-time application load, specifically using a custom metric like "number of users logged in" to ensure a jitter-free experience for customers and optimize resource utilization.
+## Problem Statement:
 
-### Architectural Solution:
-The solution leverages AWS's core compute, monitoring, and scaling services to create an elastic and responsive infrastructure:
+In many business scenarios, users need to upload files, receive immediate notification about the upload and its details, and have the flexibility to manage (e.g., delete) these files through a simple, intuitive mechanism like replying to an email. Manually handling file uploads, processing, notifications, and subsequent management can be time-consuming, error-prone, and not scalable. A cloud-native, automated solution is required to streamline this process, ensuring reliability and user convenience.
 
-EC2 Instances: These are the virtual servers that host the application.
+## Architectural Solution:
 
-CloudWatch Custom Metric:
+The solution orchestrates several AWS serverless and managed services to create a seamless file processing and email automation workflow:
 
-A Python script (user_login_simulator.py) running on each EC2 instance simulates user activity and periodically publishes a custom metric (e.g., UsersLoggedIn) to Amazon CloudWatch.
+### File Upload (Frontend & API Gateway/Lambda/S3 Presigned URL):
 
-Amazon CloudWatch collects and monitors these metrics, providing visibility into the application's load.
+A simple local website (HTML/JavaScript) provides a user interface for selecting and uploading files.
 
-CloudWatch Alarms:
+When a user selects a file, the frontend makes a request to an Amazon API Gateway endpoint.
 
-CloudWatch Alarms are configured to monitor the UsersLoggedIn custom metric.
+This API Gateway endpoint triggers an AWS Lambda function (upload_url_generator_lambda.py), which securely generates a presigned URL for an Amazon S3 Source Bucket.
 
-When the metric crosses predefined thresholds (e.g., too many users, or very few users), these alarms are triggered.
+The frontend then uses this presigned URL to directly upload the file to the S3 Source Bucket. This method is secure as it avoids exposing AWS credentials client-side.
 
-Auto Scaling Group (ASG):
+### File Processing & Email Notification (S3 Event & Lambda/SES):
 
-An AWS Auto Scaling Group (ASG) manages a collection of EC2 instances. It ensures that a specified number of instances are running and automatically replaces unhealthy instances.
+An S3 Event Notification is configured on the S3 Source Bucket. When a new file is uploaded (ObjectCreated event), it triggers an AWS Lambda function (file_processor_notifier_lambda.py).
 
-The ASG uses a Launch Template to define how new EC2 instances should be configured (e.g., AMI, instance type, security groups, and user data for automated software installation and metric publishing).
+This Lambda function processes the uploaded file (e.g., extracts metadata, performs basic validation - though the prototype focuses on notification).
 
-Auto Scaling Policies:
+It then uses Amazon Simple Email Service (SES) to send an email notification to the user. The email includes details about the uploaded file and instructions on how to delete it by replying "Delete".
 
-Scaling Policies are attached to the ASG and linked to the CloudWatch Alarms.
+### Email Reply Handling & File Management (Route 53/SES/SQS/Lambda/S3):
 
-When a "scale-out" alarm (e.g., UsersLoggedIn is high) is triggered, the policy instructs the ASG to launch more EC2 instances.
+Amazon Route 53 is used to manage the domain's DNS records, including MX (Mail Exchange) and TXT (SPF) records to configure SES for inbound email receiving.
 
-When a "scale-in" alarm (e.g., UsersLoggedIn is low) is triggered, the policy instructs the ASG to terminate instances.
+Amazon SES Receipt Rules are configured to capture incoming emails to the verified domain (e.g., replies to the notification email).
 
-IAM Roles:
+These receipt rules are set to publish the full email content to an Amazon SQS Queue (EmailReplyQueue).
 
-AWS Identity and Access Management (IAM) roles are configured to grant the EC2 instances permission to publish custom metrics to CloudWatch.
+An AWS Lambda function (email_reply_processor_lambda.py) is configured to consume messages from the SQS EmailReplyQueue.
 
-Additional IAM roles are used by the Auto Scaling service to launch and terminate EC2 instances.
+This Lambda function parses the incoming email content from the SQS message. If it detects the "Delete" keyword in the reply, it identifies the original file (e.g., from a unique identifier embedded in the original notification email's subject or headers).
 
-### Automated Deployment (AWS Serverless Application Model - SAM):
+Finally, it moves the identified file from the S3 Source Bucket to a separate Amazon S3 Deleted Bucket, effectively "deleting" it from the active storage. A confirmation email can also be sent.
 
-The entire infrastructure (EC2 Launch Template, Auto Scaling Group, CloudWatch Alarms, Auto Scaling Policies, and necessary IAM roles) is defined and deployed using an AWS SAM template (template.yaml). This ensures consistent, repeatable, and version-controlled deployments.
+## Key Architectural Decisions (KADs):
+S3 for Storage: Chosen for highly durable, scalable, and cost-effective object storage for both source and deleted files.
 
-Key Architectural Decisions (KADs):
-Auto Scaling for Elasticity: Chosen to automatically adjust compute capacity based on demand, ensuring optimal performance and cost efficiency.
+API Gateway + Lambda for Presigned URL: Provides a secure and scalable way for the frontend to obtain temporary upload credentials without exposing AWS access keys.
 
-CloudWatch Custom Metrics: Utilized to provide application-specific load indicators (e.g., UsersLoggedIn), enabling fine-grained control over scaling behavior that standard metrics might not offer.
+**S3 Event Notifications:** Enables an event-driven workflow, automatically triggering processing upon file upload.
 
-Launch Templates with User Data: Employed to automate the bootstrapping process of new EC2 instances, including installing necessary software and starting the metric publishing script.
+**AWS Lambda for Serverless Processing:** Utilized for all processing logic (URL generation, file processing, email sending, reply handling, file moving) due to its auto-scaling and pay-per-execution model.
 
-Target Tracking Scaling Policies (Conceptual): While the example uses simple step scaling for clarity, target tracking policies are a common, more advanced choice for maintaining a specific metric average.
+Amazon SES for Email: Chosen for its reliable, scalable, and cost-effective email sending and receiving capabilities, crucial for notifications and reply processing.
 
-AWS SAM for Infrastructure as Code: Utilized to define the entire scaling stack declaratively, enabling automated deployments and versioning of the infrastructure.
+**Amazon SQS for Decoupling Email Replies:** Acts as a buffer for incoming email replies, ensuring that the email_reply_processor_lambda can process messages even if it experiences transient issues, preventing data loss.
 
-### Diagrams:
-Architectural diagrams for this project would typically include:
+**Route 53 for DNS & Inbound Mail:** Essential for configuring the domain to receive emails via SES and ensuring proper email deliverability.
 
-System Context Diagram (C4 Model Level 1): Showing users interacting with the application, which is hosted on an Auto Scaling Group.
+## Architecture Diagram
 
-Container Diagram (C4 Model Level 2): Detailing the ASG, EC2 instances, CloudWatch, and the flow of metrics and scaling actions.
+![Architecture Diagram](diagrams/diagram-architecture.png)
 
-Sequence Diagram: Illustrating how user load increases, metrics are published, alarms trigger, and the ASG scales out.
+## Code Examples:
 
-Deployment Diagram: Visualizing the deployment of the ASG, EC2 instances, and CloudWatch within the AWS environment.
+Illustrative code snippets for the frontend, backend Lambda functions, and the AWS SAM template for infrastructure provisioning are provided in their respective folders:
 
-(You would place your actual diagram image files in the diagrams/ folder.)
+**frontend/:** HTML and JavaScript for the file upload website.
 
-### Code Examples:
-Illustrative code snippets for simulating user logins and pushing metrics, and the AWS SAM template for infrastructure provisioning, are provided in their respective folders:
+**backend/:** Python Lambda functions for URL generation, file processing/notification, and email reply handling/file management.
 
-application-scripts/: Python script for user_login_simulator.py.
+**infrastructure/:** AWS SAM template (template.yaml) for deploying all AWS resources.
 
-infrastructure/: AWS SAM template (template.yaml) for deploying the Auto Scaling setup.
+## Outcomes & Benefits:
 
-Outcomes & Benefits:
-This project successfully demonstrates a dynamic and highly responsive EC2 scaling solution on AWS, providing:
+This project delivers a highly automated and resilient file management system on AWS, providing:
 
-Optimized Performance: Ensures adequate compute resources are always available to handle current demand, leading to a smooth user experience.
+**Streamlined Workflow:** Automates file upload, processing, notification, and deletion, reducing manual effort.
 
-Cost Efficiency: Automatically scales down during low demand, preventing wastage of CAPEX on under-utilized resources.
+**Enhanced User Experience:** Provides immediate feedback on uploads and a simple mechanism for file management via email.
 
-Increased Reliability: Automatically replaces unhealthy instances, maintaining application availability.
+**Scalability & Reliability:** Leverages serverless services that automatically scale to handle varying loads and ensure data integrity.
 
-Reduced Manual Effort: Eliminates the need for manual intervention in scaling operations.
+**Cost-Effectiveness:** Pay-as-you-go model for all AWS services, optimizing operational costs.
 
-Business Agility: Allows businesses to respond quickly to market changes and unexpected traffic spikes.
+**Loose Coupling:** Event-driven architecture ensures components operate independently, improving system resilience.
 
-This solution is fundamental for any organization building scalable and resilient applications on the AWS Cloud.
+This solution is ideal for organizations needing efficient, automated, and user-friendly file lifecycle management in the cloud.
+
+## How to Use This Project: A Step-by-Step Guide
+This guide will walk you through setting up and demonstrating the Automated File Processing & Email Notification System on your AWS account.
+
+### Prerequisites:
+
+Before you begin, ensure you have the following:
+
+**AWS Account:** An active AWS account with administrative access.
+
+**AWS CLI Configured:** The AWS Command Line Interface (CLI) installed and configured with credentials that have sufficient permissions to deploy CloudFormation stacks, S3 buckets, Lambda functions, API Gateway, SQS, SES, and Route 53 resources.
+
+**Install AWS CLI:** https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
+
+**Configure AWS CLI:** aws configure
+
+**AWS SAM CLI Installed:** The AWS Serverless Application Model (SAM) CLI installed.
+
+**Install SAM CLI:** https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-install.html
+
+**Python 3.x:** Installed on your local machine.
+
+**Domain Name:** You must own a domain name (e.g., yourcompany.com) that you can manage DNS records for. This is required for SES email receiving.
+
+**Web Server for Frontend (Optional, for local testing):** A simple local HTTP server (e.g., Python's http.server or Node.js's serve) to host the frontend HTML/JS files.
+
+### Step 1: Clone the Repository:
+
+First, clone this GitHub repository to your local machine:
+
+git clone https://github.com/iamkjn/iamkjn.git # Or your specific portfolio repo URL
+cd iamkjn/projects/AWS-File-Processing-Email-Automation/
+
+### Step 2: Review and Update template.yaml Parameters:
+
+Open the infrastructure/template.yaml file and review the Parameters section. You must update the Default values for the following parameters to match your AWS environment and domain:
+
+**DomainName:**
+
+Purpose: Your domain name that will be used for sending and receiving emails via SES (e.g., yourdomain.com).
+
+Action: Replace yourdomain.com with the actual domain name you own.
+
+**SenderEmailAddress:**
+
+Purpose: The email address (e.g., no-reply@yourdomain.com) that will be used by the system to send notifications.
+
+Action: Replace no-reply@yourdomain.com with an actual email address you have access to and want to use as the sender.
+
+**DeletionEmailAddress:**
+
+Purpose: The email address (e.g., delete@yourdomain.com) that will receive "Delete" replies from users.
+
+Action: Replace delete@yourdomain.com with an actual email address you have access to.
+
+### Step 3: Deploy the AWS Resources using SAM CLI
+
+Navigate to the infrastructure/ directory in your terminal:
+
+cd infrastructure/
+
+**Build the SAM application:**
+
+This command packages your Lambda code and prepares the template for deployment.
+
+sam build
+
+**Deploy the SAM stack:**
+
+The --guided flag will walk you through the deployment process, prompting for parameters and confirming changes.
+
+sam deploy --guided
+
+**Stack Name:** Choose a unique name for your CloudFormation stack (e.g., FileProcessingEmailStack).
+
+AWS Region: Select the AWS region where you want to deploy (e.g., eu-west-2).
+
+Parameters: You will be prompted for DomainName, SenderEmailAddress, and DeletionEmailAddress. Provide the values you updated in Step 2.
+
+Confirm changes before deploy: Type y to review the changes.
+
+Deploy this changeset?: Type y to proceed with the deployment.
+
+The deployment may take several minutes as AWS provisions S3 buckets, Lambda functions, API Gateway, SQS, SES identities, and Route 53 hosted zones/records.
+
+### Step 4: Verify SES Identities and Configure DNS
+This is a CRUCIAL MANUAL STEP that must be completed after the SAM deployment.
+
+**Verify Email Addresses in SES:**
+
+Go to the AWS SES Console.
+
+Navigate to Verified identities.
+
+You will see your SenderEmailAddress and DeletionEmailAddress listed.
+
+AWS SES will have sent verification emails to these addresses. You MUST open these emails and click the verification links. Emails cannot be sent or received via SES until these are verified.
+
+**Verify Domain in SES and Update DNS:**
+
+In the AWS SES Console, navigate to Verified identities.
+
+Click on your DomainName.
+
+You will see a section for DNS records. AWS provides CNAME records for domain verification and MX and TXT (SPF) records for email sending/receiving.
+
+Important: While the SAM template attempts to create MX and TXT records in Route 53, you MUST ensure your domain's Name Servers (NS records) are pointing to the Route 53 Hosted Zone created by your SAM stack.
+
+Go to the AWS Route 53 Console.
+
+Navigate to Hosted zones.
+
+Find the hosted zone created by your stack (it will have your DomainName).
+
+Copy the Name Servers listed for this hosted zone.
+
+Log into your domain registrar's website (where you purchased your domain) and update your domain's Name Servers to these values. This step delegates DNS management to Route 53.
+
+Once DNS propagation occurs (can take minutes to hours), SES will automatically verify the domain, and inbound/outbound email will function.
+
+Step 5: Update Frontend script.js
+After the SAM deployment, you will get the API Gateway endpoint URL for generating presigned URLs.
+
+**Get API Gateway URL:**
+
+From the SAM deployment output in your terminal, copy the UploadUrlApiEndpoint value.
+
+Alternatively, go to the AWS CloudFormation Console, select your stack, go to the Outputs tab, and copy the UploadUrlApiEndpoint value.
+
+**Update script.js:**
+
+Open frontend/script.js in your local project.
+
+Replace 'YOUR_PRESIGNED_URL_API_ENDPOINT_HERE' with the UploadUrlApiEndpoint you copied.
+
+### Step 6: Host the Frontend Locally and Test
+Serve the Frontend:
+Navigate to the frontend/ directory in your terminal:
+
+cd frontend/
+
+You can use a simple Python HTTP server (if Python is installed):
+
+python3 -m http.server 8000
+
+Or, if you have Node.js installed, you can use npx serve:
+
+npx serve
+
+This will start a local web server, usually at http://localhost:8000.
+
+**Open in Browser:**
+Open your web browser and navigate to the address provided by your local server (e.g., http://localhost:8000).
+
+**Test the Workflow:**
+
+On the website, select a file to upload and enter the SenderEmailAddress (or any email address you control that is verified in SES for sending).
+
+Click "Upload File."
+
+**Verify Upload Notification:** Check the inbox of the email address you provided. You should receive an email confirming the file upload. Note the "ID:..." in the subject line.
+
+**Test Deletion:** Reply to that notification email from the same email address you received it on. In the subject or body of your reply, type the word "Delete" (case-insensitive).
+
+**Verify File Movement:** Go to your AWS S3 Console. Check the SourceFilesBucket – the file should be gone. Check the DeletedFilesBucket – the file should now be present there. You should also receive a confirmation email about the deletion.
+
+### Step 7: Clean Up Your AWS Resources
+To avoid incurring unnecessary AWS charges, it's crucial to clean up all resources after you are done experimenting.
+
+**Delete the SAM Stack:**
+Navigate back to the infrastructure/ directory in your terminal:
+
+cd infrastructure/
+sam delete --stack-name FileProcessingEmailStack # Use the stack name you chose during deployment
+
+Confirm the deletion when prompted. This command will remove all resources created by the SAM template (S3 buckets, Lambda functions, API Gateway, SQS queue, SES identities, Route 53 hosted zone/records, SNS topic).
+
+**Manually Delete SES Identities (if sam delete fails):**
+
+Go to the AWS SES Console -> Verified identities.
+
+Select your email addresses and domain, and click Delete.
+
+Manually Delete S3 Buckets (if sam delete fails or if they contain objects):
+
+Go to the AWS S3 Console.
+
+Select SourceFilesBucket and DeletedFilesBucket.
+
+You may need to empty the buckets first if they contain objects (including raw-emails/ prefix) before you can delete them.
+
+Click Delete.
+
+By following these steps, you can effectively demonstrate your understanding of automated file processing, email notifications, and serverless architecture on AWS.
