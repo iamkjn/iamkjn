@@ -110,7 +110,7 @@ Resources:
 
           cloudwatch = boto3.client('cloudwatch')
 
-          CLOUDWATCH_NAMESPACE = "Telemax/NetworkApp"
+          CLOUDWATCH_NAMESPACE = "NetworkApp"
           METRIC_NAME = "UsersLoggedIn"
           PUBLISH_INTERVAL_SECONDS = 10
           MIN_USERS = 5
@@ -246,7 +246,7 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       EvaluationPeriods: 1 # Number of periods over which the statistic is applied.
       MetricName: UsersLoggedIn # Custom metric name.
-      Namespace: Telemax/NetworkApp # Custom metric namespace.
+      Namespace: NetworkApp # Custom metric namespace.
       Period: 60 # Period in seconds over which the statistic is applied (1 minute).
       Statistic: Average # Statistic to apply (e.g., Average, Sum, Maximum).
       Threshold: 20 # Threshold for scaling out (e.g., if average users >= 20).
@@ -282,7 +282,7 @@ Resources:
       ComparisonOperator: LessThanOrEqualToThreshold
       EvaluationPeriods: 1
       MetricName: UsersLoggedIn
-      Namespace: Telemax/NetworkApp
+      Namespace: NetworkApp
       Period: 60
       Statistic: Average
       Threshold: 10 # Threshold for scaling in (e.g., if average users <= 10).
