@@ -4,7 +4,7 @@
 
 Welcome to my architectural showcase, demonstrating expertise in designing and implementing robust, scalable, and efficient cloud solutions on Amazon Web Services (AWS). This portfolio highlights my ability to leverage cloud-native services for automated workflows, dynamic infrastructure management, complex data processing, and building highly available, loosely coupled systems.
 
-### My Architectural Philosophy:
+## My Architectural Philosophy:
 I am committed to building systems that are not just high-performing but also resilient, maintainable, and optimized for operational excellence. My core principles include:
 
 Cloud-Native Adoption: Maximizing the inherent capabilities of cloud services to reduce operational overhead and accelerate innovation.
@@ -19,7 +19,9 @@ Dynamic Scaling: Implementing automated scaling mechanisms to adapt to fluctuati
 
 Security by Design: Integrating robust security measures and best practices from the foundational stages of architecture.
 
-### Core Competencies:
+
+## Core Competencies:
+
 Cloud Architecture: AWS (S3, Lambda, API Gateway, SQS, SES, Route 53, EC2, Auto Scaling, CloudWatch, SNS, IAM, Kinesis, DynamoDB, RDS)
 
 Monitoring & Alerting: Implementing comprehensive monitoring with CloudWatch and configuring alarms for proactive issue detection.
@@ -48,7 +50,9 @@ Python Development: Backend logic and application simulators.
 
 Frontend Development: HTML, CSS, JavaScript.
 
-### Certifications & Achievements:
+
+## Certifications & Achievements:
+
 AWS Certified Solutions Architect – Associate (Amazon, May 2025) 
 
 AWS Cloud Technical Essentials (Simplilearn, Training)
@@ -63,35 +67,55 @@ AWS SysOps Associate, Developer Associate (Simplilearn, Training)
 
 
 ## Featured Projects:
-### 1. EC2 Monitoring & IAM Access Management
-This project demonstrates essential operational practices on AWS: monitoring EC2 instance performance with CloudWatch alarms and managing user access securely with IAM Groups and Users. It showcases how to set up proactive alerts for infrastructure health and define granular permissions for cloud resources.
 
-[Explore the EC2 Monitoring & IAM Management Project Details]
+### 1. Serverless Feedback Platform: A Scalable AWS Architectural Showcase
+This project features a Serverless Feedback Website, a robust solution for gathering customer insights without the burden of traditional server management, built entirely with serverless AWS services.
 
-### 2. Automated File Processing & Email Notification System
+[Explore the Serverless Feedback Platform Project Details](https://github.com/iamkjn/iamkjn/tree/main/projects/Serverless-Feedback-Platform-AWS-Architecture-main)
+
+### 2. WordPress AWS Serverless Automation
+This project demonstrates how to achieve serverless automation for WordPress on AWS, showcasing a modern approach to managing WordPress environments with cloud-native services.
+
+[Explore the WordPress AWS Serverless Automation Project Details](https://github.com/iamkjn/iamkjn/tree/main/projects/WordPress-AWS-Serverless-Automation-main)
+
+### 3. Web Server Deployment & Load Balancing for Client Website
+This project demonstrates the deployment and configuration of a Windows EC2 web server with IIS, followed by the creation of a custom AMI and the setup of an Application Load Balancer (ALB) to ensure high availability and successful testing of a client's website on the AWS Cloud.
+
+[Explore the Web Server Deployment & Testing Project Details](https://github.com/iamkjn/iamkjn/tree/main/projects/AWS-Web-Server-Deployment-Testing)
+
+### 4. EC2 Monitoring & IAM Access Management
+This project demonstrates essential operational practices on AWS: proactive monitoring of EC2 instance performance with CloudWatch alarms and securely managing access to AWS resources through IAM Groups and Users. It showcases how to set up proactive alerts for infrastructure health and define granular permissions for cloud resources.
+
+[Explore the EC2 Monitoring & IAM Management Project Details](https://github.com/iamkjn/iamkjn/tree/main/projects/AWS-EC2-Monitoring-IAM-Management)
+
+### 5. Automated File Processing & Email Notification System
 This project demonstrates an automated file processing and email notification system on AWS. It showcases how to upload files to S3, trigger serverless processing with Lambda, send email notifications via SES, and handle email replies (e.g., for file deletion) using SQS and Lambda.
 
-[Explore the File Processing & Email Automation Project Details]
+[Explore the File Processing & Email Automation Project Details](https://github.com/iamkjn/iamkjn/tree/main/projects/AWS-File-Processing-Email-Automation)
 
-### 3. Dynamic EC2 Scaling with Auto Scaling & CloudWatch
+### 6. Dynamic EC2 Scaling with Auto Scaling & CloudWatch
 This project showcases the implementation of dynamic scaling for EC2 instances using AWS Auto Scaling and custom CloudWatch metrics. It demonstrates how to automatically adjust compute capacity in response to application load, ensuring optimal performance and cost efficiency.
 
-[Explore the Dynamic EC2 Scaling Project Details]
+[Explore the Dynamic EC2 Scaling Project Details](https://github.com/iamkjn/iamkjn/tree/main/projects/AWS-Dynamic-EC2-Scaling-CloudWatch)
 
-### 4. Loosely Coupled Architecture with AWS SQS
+### 7. Loosely Coupled Architecture with AWS SQS
 This project demonstrates a Loosely Coupled Architecture utilizing AWS SQS, a fundamental pattern for building resilient and scalable distributed systems. This project illustrates how message queuing can decouple applications, preventing cascading failures and improving overall system availability.
 
-[Explore the Loosely Coupled SQS Architecture Project Details]
+[Explore the Loosely Coupled SQS Architecture Project Details](https://github.com/iamkjn/iamkjn/tree/main/projects/AWS-Loosely-Coupled-Architecture-SQS)
 
-### 5. Real-time Data Pipeline for Network Optimization
+### 8. Real-time Data Pipeline for Network Optimization
 This project demonstrates a robust Real-time Data Pipeline, designed to manage high-volume, real-time data for continuous network topology optimization. It exemplifies building a data ingestion and warehousing solution using AWS Kinesis and DynamoDB.
 
-[Explore the Real-time Data Pipeline Project Details]
+[Explore the Real-time Data Pipeline Project Details](https://github.com/iamkjn/iamkjn/tree/main/projects/AWS-Realtime-Data-Pipeline-Kinesis-DynamoDB-main)
 
-### Why Work With Me?
-I deliver architectural solutions that bridge technical vision with critical business needs, enabling organizations to harness the power of their data and operate with unprecedented agility. My focus is on creating architectures that are not only powerful today but are also adaptable for the evolving challenges of tomorrow.
 
-### Contact:
+## Why Work With Me?
+
+I deliver architectural solutions that bridge technical vision with critical business needs, enabling organizations to harness the power of their data and operate with unprecedented agility. My focus is on creating architectures that are not only powerful today but also adaptable to tomorrow's evolving challenges.
+
+
+## Contact:
+
 Feel free to connect with me to discuss architectural challenges or opportunities:
 
 📧 **Email:** [krunalnayak1409@gmail.com](mailto:krunalnayak1409@gmail.com)
