@@ -27,15 +27,6 @@ As an organization focused on publishing blogs and providing documentation servi
 
 ![Architecture Diagram](images/architecture-diagram.png)
 
-
-* AWS CloudFormation as the orchestrator.
-* Two distinct EC2 instances: "Live WordPress" and "Dev/Test WordPress".
-* "Live WordPress" connected directly to the internet (or via a basic security group).
-* "Dev/Test WordPress" connected to the internet (via a security group, possibly restricted to your IP).
-* CloudWatch Events (depicting two rules for Start/Stop times, e.g., a clock icon) pointing to an AWS Lambda function.
-* The AWS Lambda function pointing to and interacting with the "Dev/Test WordPress" EC2 instance (showing Start/Stop actions).
-* Show arrows for user access to the "Live WordPress" instance.)*
-
 ## Technologies Used
 
 * **AWS Services**:
@@ -51,6 +42,10 @@ As an organization focused on publishing blogs and providing documentation servi
 ## Deployment Steps
 
 To deploy this project successfully in your AWS account, follow these steps:
+
+## How to Use This Project: A Step-by-Step Guide
+
+This guide will walk you through setting up and demonstrating the WordPress AWS Serverless Automation project on your AWS account.
 
 ## Prerequisites
 
@@ -152,13 +147,3 @@ aws cloudformation delete-stack --stack-name WordPressDevTest --region YOUR_AWS_
 aws cloudformation delete-stack --stack-name WordPressLiveBlog --region YOUR_AWS_REGION
 ```
 (Remember to replace YOUR_AWS_REGION)
-
-### Why Work With Me?
-I deliver architectural solutions that bridge technical vision with business goals, enabling organizations to innovate faster and operate more efficiently. My focus is on creating architectures that are not only powerful today but are also adaptable for the challenges of tomorrow.
-
-### Contact:
-Feel free to connect with me to discuss architectural challenges or opportunities:
-
-LinkedIn: [https://www.linkedin.com/in/krunalnayak]
-
-Email: [Krunalnayak49@gmail.com]
