@@ -8,10 +8,6 @@ This project demonstrates the implementation of a fully serverless feedback coll
 
 Traditional methods of collecting customer feedback often involve managing dedicated servers, databases, and complex authentication systems. This leads to increased operational overhead, scaling challenges, and higher costs, diverting resources from core business activities. A solution was needed that could efficiently capture feedback without the need for constant infrastructure management.
 
-## Architecture Diagram
-
-![Architecture Diagram](diagram/architecture-diagram.png)
-
 ## Architectural Solution:
 
 The solution leverages a combination of serverless AWS services to create a highly available and scalable feedback platform.
@@ -46,17 +42,9 @@ API Gateway for Backend Exposure: Utilized to provide a secure, scalable, and ma
 
 AWS SAM for Deployment: Chosen to define and deploy the serverless application's resources (Lambda, API Gateway, DynamoDB) in a single, version-controlled template, promoting automation and consistency.
 
-## Diagrams:
+## Architecture Diagram
 
-Architectural diagrams for this project would typically include:
-
-System Context Diagram (C4 Model Level 1): Showing the user interacting with the Serverless Feedback Website system.
-
-Container Diagram (C4 Model Level 2): Detailing the S3 bucket (frontend), API Gateway, Lambda function, and DynamoDB table as "containers" of code or data.
-
-Deployment Diagram: Illustrating how these AWS services are deployed and interact within the AWS cloud environment.
-
-(You would place your actual diagram image files in the diagrams/ folder.)
+![Architecture Diagram](diagram/architecture-diagram.png)
 
 ## Code Examples:
 
