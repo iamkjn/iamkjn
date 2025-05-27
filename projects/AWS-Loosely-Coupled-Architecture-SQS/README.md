@@ -10,7 +10,7 @@ In traditional application designs, direct communication between services leads 
 
 ## Real-World Scenario:
 
-Building on the TELEMAX scenario, imagine their network management system has various components: a "Customer Web Application" for user interactions (e.g., configuring devices, viewing network status) and a "Backend Application" responsible for processing these configurations and updating a central database (e.g., in Amazon RDS). If the Backend Application is temporarily unavailable (e.g., during maintenance, scaling events, or unexpected failures), the Customer Web Application would typically fail to process user requests, leading to a poor user experience and potential loss of critical configuration data.
+Building on the scenario, imagine their network management system has various components: a "Customer Web Application" for user interactions (e.g., configuring devices, viewing network status) and a "Backend Application" responsible for processing these configurations and updating a central database (e.g., in Amazon RDS). If the Backend Application is temporarily unavailable (e.g., during maintenance, scaling events, or unexpected failures), the Customer Web Application would typically fail to process user requests, leading to a poor user experience and potential loss of critical configuration data.
 
 ## Architectural Solution:
 
