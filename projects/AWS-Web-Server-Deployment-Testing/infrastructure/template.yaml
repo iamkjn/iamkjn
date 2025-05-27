@@ -6,13 +6,13 @@ Description: AWS SAM template for Web Server Deployment and Load Balancing with 
 Parameters:
   # AMI ID for the Windows Server 2022.
   # IMPORTANT: Find a suitable AMI ID for your region.
-  # Example for us-east-1: ami-0371a5c68b75f92ff (Windows_Server-2022-R2_RTM-English-64Bit-Base)
+  # Example for us-east-1: ami-0371a5c68b75f92ff (Windows_Server-2022_RTM-English-64Bit-Base)
   # You can find regional AMIs here: https://aws.amazon.com/amazon-linux-2/ or by using AWS CLI:
-  # aws ec2 describe-images --owners amazon --filters "Name=name,Values=Windows_Server-2022-R2_RTM-English-64Bit-Base*" --query "Images[*].[ImageId,CreationDate]" --region us-east-1 --output text
+  # aws ec2 describe-images --owners amazon --filters "Name=name,Values=Windows_Server-2022_RTM-English-64Bit-Base*" --query "Images[*].[ImageId,CreationDate]" --region us-east-1 --output text
   WindowsServer2022AmiId:
     Type: String
     Default: ami-0371a5c68b75f92ff # Replace with a Windows 2022 AMI ID for your region.
-    Description: AMI ID for the Windows Server 2022 R2 EC2 instances.
+    Description: AMI ID for the Windows Server 2022 EC2 instances.
 
   InstanceType:
     Type: String
@@ -91,7 +91,7 @@ Resources:
   InitialWebServerInstance:
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: !Ref WindowsServer2022R2AmiId
+      ImageId: !Ref WindowsServer2022AmiId
       InstanceType: !Ref InstanceType
       KeyName: !Ref KeyPairName
       SecurityGroupIds:
@@ -202,9 +202,9 @@ Resources:
   WebServerInstance1:
     Type: AWS::EC2::Instance
     Properties:
-      # IMPORTANT: Replace !Ref WindowsServer2022R2AmiId with the ID of your *custom AMI*
+      # IMPORTANT: Replace !Ref WindowsServer2022AmiId with the ID of your *custom AMI*
       # created from InitialWebServerInstance after it's configured.
-      ImageId: !Ref WindowsServer2022R2AmiId # Replace with your custom AMI ID after creation.
+      ImageId: !Ref WindowsServer2022AmiId # Replace with your custom AMI ID after creation.
       InstanceType: !Ref InstanceType
       KeyName: !Ref KeyPairName
       SecurityGroupIds:
@@ -220,16 +220,16 @@ Resources:
   WebServerInstance2:
     Type: AWS::EC2::Instance
     Properties:
-      # IMPORTANT: Replace !Ref WindowsServer2022R2AmiId with the ID of your *custom AMI*
+      # IMPORTANT: Replace !Ref WindowsServer2022AmiId with the ID of your *custom AMI*
       # created from InitialWebServerInstance after it's configured.
-      ImageId: !Ref WindowsServer2022R2AmiId # Replace with your custom AMI ID after creation.
+      ImageId: !Ref WindowsServer2022AmiId # Replace with your custom AMI ID after creation.
       InstanceType: !Ref InstanceType
       KeyName: !Ref KeyPairName
       SecurityGroupIds:
         - !GetAtt EC2SecurityGroup.GroupId
       Tags:
         - Key: Name
-          Value: HeavenClassicsWebServer2
+          Value: HeavenClassicsWebServer
         - Key: Project
           Value: WebServerDeploymentTesting
         - Key: Role
