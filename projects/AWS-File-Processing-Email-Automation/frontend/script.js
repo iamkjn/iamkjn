@@ -2,7 +2,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // Get references to the form, input elements, and message display
     const uploadForm = document.getElementById('uploadForm');
     const fileInput = document.getElementById('fileInput');
-    const userEmailInput = document.getElementById('userEmail');
     const messageDiv = document.getElementById('message');
 
     // **IMPORTANT**: Replace with your actual API Gateway endpoint URL for generating presigned URLs.
@@ -14,15 +13,11 @@ document.addEventListener('DOMContentLoaded', () => {
         event.preventDefault(); // Prevent default form submission (page reload)
 
         const file = fileInput.files[0]; // Get the selected file
-        const userEmail = userEmailInput.value; // Get the user's email
+        const userEmail = "admin@email.com" // Replace with actual user email or get it dynamically
 
         // Basic client-side validation
         if (!file) {
             showMessage('Please select a file to upload.', 'error');
-            return;
-        }
-        if (!userEmail) {
-            showMessage('Please enter your email address for notification.', 'error');
             return;
         }
 
